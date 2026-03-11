@@ -49,6 +49,9 @@ window.renderProfile = window.renderProfile || function(){
 window.renderAdmin = window.renderAdmin || function(){
   const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Admin loading…</div>';
 };
+window.renderIssues = window.renderIssues || function(){
+  const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Issue Tracker loading…</div>';
+};
 
 /* Safe DOM helper */
 window.$ = (id)=> document.getElementById(id) || null;
@@ -418,7 +421,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
       expenses: [],
       recurringTasks: [],
       activityLogs: [],
-      allQuizResults: []
+      allQuizResults: [],
+      issues: []
     };
 
     /***********************
@@ -734,7 +738,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
         "notes",
         "expenses",
         "recurring_tasks",
-        "activity_logs"
+        "activity_logs",
+        "issues"
       ];
 
       for (const name of collectionsList) {
@@ -1063,6 +1068,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
         }
       );
       state.listeners.push(unsubLogs);
+
+      // ISSUES
+      const unsubIssues = onSnapshot(query(collection(db,'issues'), orderBy('createdAt','desc')), (snap) => {
+        state.issues = snap.docs.map(d=>({id:d.id,...d.data()})).filter(d=>!d.initialized);
+        if (state.view === 'issues') renderIssues();
+      });
+      state.listeners.push(unsubIssues);
     }
 
     /***********************
@@ -1128,6 +1140,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         { id: 'meetings', icon: 'fa-calendar', label: 'Meetings', emoji: '📅' },
         { id: 'my-notes', icon: 'fa-notebook', label: 'My Notes', emoji: '📓' },
         { id: 'expenses', icon: 'fa-receipt', label: 'Expenses', emoji: '💸' },
+        { id: 'issues', icon: 'fa-triangle-exclamation', label: 'Issue Tracker', emoji: '⚠️' },
         { id: 'calendar', icon: 'fa-calendar-days', label: 'Calendar', emoji: '🗓️' },
         ...(isAdmin ? [
           { id: 'reports', icon: 'fa-chart-pie', label: 'Reports', emoji: '📊' },
@@ -1197,6 +1210,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         'my-settings': '⚙️ My Settings',
         'recurring-tasks': '🔄 Recurring Tasks',
         'activity-logs': '📋 Activity Logs',
+        'issues': '⚠️ Issue Monitoring',
       };
       $('page-title').textContent = titleMap[view] || 'Portal';
       const contentArea = $('content-area');
@@ -1242,6 +1256,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         case 'my-settings': renderMySettings(); break;
         case 'recurring-tasks': renderRecurringTasks(); break;
         case 'activity-logs': renderActivityLogs(); break;
+        case 'issues': renderIssues(); break;
         default: renderHome();
       }
     };
@@ -7018,6 +7033,574 @@ document.addEventListener('DOMContentLoaded', ()=>{
       downloadCSV(`activity_logs_${new Date().toISOString().slice(0,10)}.csv`, rows);
       toast('Logs exported');
     };
+
+    /***********************
+     * ISSUE MONITORING MODULE
+     ***********************/
+    const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    function issueStatusBadge(status) {
+      if (status === 'CLOSED') return `<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-200 dark:bg-green-900/30 dark:text-green-300">✅ CLOSED</span>`;
+      if (status === 'ONGOING') return `<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-900/30 dark:text-orange-300">🔄 ONGOING</span>`;
+      return `<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-300">🔴 OPEN</span>`;
+    }
+
+    function issueStatusDot(status) {
+      if (status === 'CLOSED') return 'bg-green-500';
+      if (status === 'ONGOING') return 'bg-orange-500';
+      return 'bg-red-500';
+    }
+
+    // State for issue filters
+    const issueFilter = { status: '', month: '', search: '', responsible: '' };
+
+    function getFilteredIssues() {
+      return (state.issues || []).filter(i => {
+        if (issueFilter.status && i.status !== issueFilter.status) return false;
+        if (issueFilter.month && i.month !== issueFilter.month) return false;
+        if (issueFilter.responsible && i.responsiblePerson !== issueFilter.responsible) return false;
+        if (issueFilter.search) {
+          const q = issueFilter.search.toLowerCase();
+          const hay = `${i.issueTopic||''} ${i.actionPlan||''} ${i.paloNumber||''} ${i.responsiblePerson||''} ${i.remarks||''}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+    }
+
+    function renderIssues() {
+      const issues = state.issues || [];
+      const filtered = getFilteredIssues();
+      const isAdmin = state.currentUserDoc?.role === 'admin';
+      const openCount = issues.filter(i=>i.status==='OPEN').length;
+      const ongoingCount = issues.filter(i=>i.status==='ONGOING').length;
+      const closedCount = issues.filter(i=>i.status==='CLOSED').length;
+      const responsibleOptions = [...new Set(issues.map(i=>i.responsiblePerson).filter(Boolean))];
+
+      const html = `
+        <div class="max-w-7xl mx-auto space-y-5 animate-slide-in">
+
+          <!-- Header Banner -->
+          <div class="bg-gradient-to-r from-orange-500/20 via-red-400/10 to-transparent border border-border rounded-2xl p-6">
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h2 class="text-xl font-black flex items-center gap-2">⚠️ Issue Monitoring & Action Plan Tracker</h2>
+                <p class="text-sm text-muted-foreground mt-0.5">${issues.length} total issues recorded</p>
+              </div>
+              <div class="flex gap-2 flex-wrap">
+                <button onclick="window.navigate('issue-dashboard')" class="px-4 py-2 bg-muted border border-border rounded-xl font-semibold text-sm hover:bg-muted/80 transition-all flex items-center gap-2">
+                  📊 Dashboard
+                </button>
+                <button onclick="window.openIssueModal()" class="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm shadow hover:bg-primary/90 transition-all">
+                  ＋ New Issue
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Summary Stats -->
+          <div class="grid grid-cols-3 gap-4">
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl p-4 cursor-pointer hover:shadow-md transition-all" onclick="window.setIssueFilter('status','OPEN')">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-xs font-semibold text-red-600 uppercase tracking-wide">Open</p>
+                  <p class="text-3xl font-black text-red-600 mt-1">${openCount}</p>
+                </div>
+                <div class="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/40 flex items-center justify-center text-2xl">🔴</div>
+              </div>
+            </div>
+            <div class="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-2xl p-4 cursor-pointer hover:shadow-md transition-all" onclick="window.setIssueFilter('status','ONGOING')">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-xs font-semibold text-orange-600 uppercase tracking-wide">Ongoing</p>
+                  <p class="text-3xl font-black text-orange-600 mt-1">${ongoingCount}</p>
+                </div>
+                <div class="w-12 h-12 rounded-full bg-orange-100 dark:bg-orange-900/40 flex items-center justify-center text-2xl">🔄</div>
+              </div>
+            </div>
+            <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-2xl p-4 cursor-pointer hover:shadow-md transition-all" onclick="window.setIssueFilter('status','CLOSED')">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-xs font-semibold text-green-600 uppercase tracking-wide">Closed</p>
+                  <p class="text-3xl font-black text-green-600 mt-1">${closedCount}</p>
+                </div>
+                <div class="w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/40 flex items-center justify-center text-2xl">✅</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Filters -->
+          <div class="bg-card border border-border rounded-2xl p-4 flex flex-wrap gap-3 items-center">
+            <div class="relative flex-1 min-w-[160px]">
+              <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xs"></i>
+              <input id="issue-search" type="text" placeholder="Search issues…" value="${issueFilter.search}"
+                oninput="window.applyIssueFilters()"
+                class="w-full h-9 pl-8 pr-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+            </div>
+            <select id="issue-filter-status" onchange="window.applyIssueFilters()" class="h-9 px-3 rounded-lg border border-input bg-background text-sm min-w-[110px]">
+              <option value="">All Status</option>
+              <option value="OPEN" ${issueFilter.status==='OPEN'?'selected':''}>🔴 Open</option>
+              <option value="ONGOING" ${issueFilter.status==='ONGOING'?'selected':''}>🔄 Ongoing</option>
+              <option value="CLOSED" ${issueFilter.status==='CLOSED'?'selected':''}>✅ Closed</option>
+            </select>
+            <select id="issue-filter-month" onchange="window.applyIssueFilters()" class="h-9 px-3 rounded-lg border border-input bg-background text-sm min-w-[120px]">
+              <option value="">All Months</option>
+              ${MONTHS.map(m=>`<option value="${m}" ${issueFilter.month===m?'selected':''}>${m}</option>`).join('')}
+            </select>
+            <select id="issue-filter-person" onchange="window.applyIssueFilters()" class="h-9 px-3 rounded-lg border border-input bg-background text-sm min-w-[140px]">
+              <option value="">All Responsible</option>
+              ${responsibleOptions.map(r=>`<option value="${r}" ${issueFilter.responsible===r?'selected':''}>${r}</option>`).join('')}
+            </select>
+            ${(issueFilter.status||issueFilter.month||issueFilter.search||issueFilter.responsible)?`
+            <button onclick="window.clearIssueFilters()" class="h-9 px-3 rounded-lg border border-destructive/30 text-destructive text-xs font-semibold hover:bg-destructive/10 transition-colors">✕ Clear</button>
+            `:''}
+            <span class="text-xs text-muted-foreground ml-auto">${filtered.length} of ${issues.length} issues</span>
+          </div>
+
+          <!-- Table -->
+          <div class="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-muted/40 text-xs text-muted-foreground uppercase border-b border-border">
+                  <tr>
+                    <th class="px-4 py-3 text-left w-8">#</th>
+                    <th class="px-4 py-3 text-left">Month</th>
+                    <th class="px-4 py-3 text-left">Issue No.</th>
+                    <th class="px-4 py-3 text-left">PALO #</th>
+                    <th class="px-4 py-3 text-left min-w-[180px]">Issue / Topic</th>
+                    <th class="px-4 py-3 text-left min-w-[180px]">Action Plan</th>
+                    <th class="px-4 py-3 text-left">Responsible</th>
+                    <th class="px-4 py-3 text-left">Timeline</th>
+                    <th class="px-4 py-3 text-left">Status</th>
+                    <th class="px-4 py-3 text-left">Closing Date</th>
+                    <th class="px-4 py-3 text-left">Closing Month</th>
+                    <th class="px-4 py-3 text-left">Remarks</th>
+                    <th class="px-4 py-3 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-border">
+                  ${filtered.length === 0 ? `
+                    <tr><td colspan="13" class="px-4 py-10 text-center text-muted-foreground text-sm">
+                      ${issues.length === 0 ? '⚠️ No issues recorded yet. Click <strong>+ New Issue</strong> to get started.' : '🔍 No issues match your filters.'}
+                    </td></tr>
+                  ` : filtered.map((issue, idx) => `
+                    <tr class="hover:bg-muted/30 transition-colors">
+                      <td class="px-4 py-3 text-xs text-muted-foreground">${idx+1}</td>
+                      <td class="px-4 py-3 text-xs font-medium">${issue.month||'—'}</td>
+                      <td class="px-4 py-3 text-xs font-mono font-semibold">${issue.issueNumber||'—'}</td>
+                      <td class="px-4 py-3 text-xs font-mono text-primary font-semibold">${issue.paloNumber||'—'}</td>
+                      <td class="px-4 py-3 text-xs max-w-[200px]">
+                        <div class="line-clamp-2" title="${(issue.issueTopic||'').replace(/"/g,'&quot;')}">${issue.issueTopic||'—'}</div>
+                      </td>
+                      <td class="px-4 py-3 text-xs max-w-[200px]">
+                        <div class="line-clamp-2 text-muted-foreground" title="${(issue.actionPlan||'').replace(/"/g,'&quot;')}">${issue.actionPlan||'—'}</div>
+                      </td>
+                      <td class="px-4 py-3 text-xs font-medium">${issue.responsiblePerson||'—'}</td>
+                      <td class="px-4 py-3 text-xs whitespace-nowrap ${issue.timeline && new Date(issue.timeline) < new Date() && issue.status !== 'CLOSED' ? 'text-red-500 font-semibold' : ''}">${issue.timeline ? new Date(issue.timeline).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'}</td>
+                      <td class="px-4 py-3">${issueStatusBadge(issue.status||'OPEN')}</td>
+                      <td class="px-4 py-3 text-xs whitespace-nowrap">${issue.closingDate ? new Date(issue.closingDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'}</td>
+                      <td class="px-4 py-3 text-xs">${issue.closingMonth||'—'}</td>
+                      <td class="px-4 py-3 text-xs text-muted-foreground max-w-[140px]">
+                        <div class="line-clamp-2">${issue.remarks||'—'}</div>
+                      </td>
+                      <td class="px-4 py-3">
+                        <div class="flex items-center justify-center gap-1">
+                          <button onclick="window.openIssueModal('${issue.id}')" title="Edit" class="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                            <i class="fa-solid fa-pen text-xs"></i>
+                          </button>
+                          ${issue.status !== 'CLOSED' ? `
+                          <button onclick="window.closeIssueNow('${issue.id}')" title="Mark Closed" class="p-1.5 rounded-lg hover:bg-green-100 text-muted-foreground hover:text-green-600 transition-colors">
+                            <i class="fa-solid fa-check text-xs"></i>
+                          </button>` : ''}
+                          ${isAdmin ? `
+                          <button onclick="window.deleteIssue('${issue.id}')" title="Delete" class="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+                            <i class="fa-solid fa-trash text-xs"></i>
+                          </button>` : ''}
+                        </div>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      `;
+      $('content-area').innerHTML = html;
+    }
+
+    window.setIssueFilter = function(key, val) {
+      issueFilter[key] = issueFilter[key] === val ? '' : val;
+      renderIssues();
+    };
+    window.clearIssueFilters = function() {
+      issueFilter.status = ''; issueFilter.month = ''; issueFilter.search = ''; issueFilter.responsible = '';
+      renderIssues();
+    };
+    window.applyIssueFilters = function() {
+      issueFilter.search = $('issue-search')?.value || '';
+      issueFilter.status = $('issue-filter-status')?.value || '';
+      issueFilter.month = $('issue-filter-month')?.value || '';
+      issueFilter.responsible = $('issue-filter-person')?.value || '';
+      const filtered = getFilteredIssues();
+      // Re-render table body only
+      renderIssues();
+    };
+
+    window.openIssueModal = function(issueId=null) {
+      const isEdit = !!issueId;
+      const issue = isEdit ? (state.issues||[]).find(x=>x.id===issueId) : {};
+      const i = issue || {};
+
+      showModal(`
+        <div class="p-6 border-b border-border flex justify-between items-center bg-muted/30 rounded-t-xl">
+          <div>
+            <h3 class="font-bold text-lg">${isEdit ? '✏️ Edit Issue' : '⚠️ New Issue'}</h3>
+            <p class="text-xs text-muted-foreground mt-0.5">${isEdit ? 'Update issue details and action plan' : 'Record a new operational issue'}</p>
+          </div>
+          <button onclick="window.closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+
+        <div class="p-6 space-y-5 overflow-y-auto max-h-[70vh]">
+
+          <!-- Issue Details Section -->
+          <div>
+            <p class="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2"><span class="w-4 h-0.5 bg-primary inline-block"></span> Issue Details</p>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="text-xs font-semibold text-muted-foreground block mb-1.5">Month <span class="text-destructive">*</span></label>
+                <select id="im-month" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                  <option value="">Select month…</option>
+                  ${MONTHS.map(m=>`<option value="${m}" ${i.month===m?'selected':''}>${m}</option>`).join('')}
+                </select>
+              </div>
+
+              <div>
+                <label class="text-xs font-semibold text-muted-foreground block mb-1.5">Responsible Person <span class="text-destructive">*</span></label>
+                <input id="im-responsible" type="text" value="${(i.responsiblePerson||'').replace(/"/g,'&quot;')}" placeholder="Assigned person or team"
+                  class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+              </div>
+            </div>
+            ${isEdit ? `
+            <div class="flex gap-3 mt-1">
+              <div class="flex-1 bg-muted/50 border border-border rounded-xl px-4 py-2.5 flex items-center gap-2">
+                <i class="fa-solid fa-hashtag text-xs text-muted-foreground"></i>
+                <span class="text-xs text-muted-foreground font-semibold">Issue No.</span>
+                <span class="text-xs font-mono font-bold text-primary ml-auto">${i.issueNumber||'—'}</span>
+              </div>
+              <div class="flex-1 bg-muted/50 border border-border rounded-xl px-4 py-2.5 flex items-center gap-2">
+                <i class="fa-solid fa-tag text-xs text-muted-foreground"></i>
+                <span class="text-xs text-muted-foreground font-semibold">PALO #</span>
+                <span class="text-xs font-mono font-bold text-primary ml-auto">${i.paloNumber||'—'}</span>
+              </div>
+            </div>` : `
+            <p class="text-[11px] text-muted-foreground mt-1 flex items-center gap-1.5 bg-muted/40 border border-border rounded-lg px-3 py-2">
+              <i class="fa-solid fa-circle-info text-primary/70"></i>
+              <span><strong>Issue Number</strong> and <strong>PALO Number</strong> will be auto-generated upon saving.</span>
+            </p>`}
+            <div class="mt-4">
+              <label class="text-xs font-semibold text-muted-foreground block mb-1.5">Issue / Topic <span class="text-destructive">*</span></label>
+              <textarea id="im-issue-topic" rows="3" placeholder="Describe the issue or topic in detail…"
+                class="w-full px-3 py-2.5 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none">${i.issueTopic||''}</textarea>
+            </div>
+          </div>
+
+          <!-- Action Plan Section -->
+          <div>
+            <p class="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2"><span class="w-4 h-0.5 bg-primary inline-block"></span> Action Plan</p>
+            <textarea id="im-action-plan" rows="3" placeholder="Describe the corrective action plan…"
+              class="w-full px-3 py-2.5 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none">${i.actionPlan||''}</textarea>
+          </div>
+
+          <!-- Monitoring Section -->
+          <div>
+            <p class="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2"><span class="w-4 h-0.5 bg-primary inline-block"></span> Monitoring</p>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="text-xs font-semibold text-muted-foreground block mb-1.5">Timeline (Target Date)</label>
+                <input id="im-timeline" type="date" value="${i.timeline||''}"
+                  class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+              </div>
+              <div>
+                <label class="text-xs font-semibold text-muted-foreground block mb-1.5">Status <span class="text-destructive">*</span></label>
+                <select id="im-status" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                  <option value="OPEN" ${(!i.status||i.status==='OPEN')?'selected':''}>🔴 OPEN</option>
+                  <option value="ONGOING" ${i.status==='ONGOING'?'selected':''}>🔄 ONGOING</option>
+                  <option value="CLOSED" ${i.status==='CLOSED'?'selected':''}>✅ CLOSED</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Completion Section -->
+          <div>
+            <p class="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2"><span class="w-4 h-0.5 bg-primary inline-block"></span> Completion</p>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="text-xs font-semibold text-muted-foreground block mb-1.5">Closing Date</label>
+                <input id="im-closing-date" type="date" value="${i.closingDate||''}"
+                  class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                <p class="text-[10px] text-muted-foreground mt-1">Setting a closing date auto-sets status to CLOSED</p>
+              </div>
+              <div>
+                <label class="text-xs font-semibold text-muted-foreground block mb-1.5">Remarks</label>
+                <input id="im-remarks" type="text" value="${(i.remarks||'').replace(/"/g,'&quot;')}" placeholder="Additional notes…"
+                  class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="p-6 border-t border-border bg-muted/30 rounded-b-xl flex justify-end gap-3">
+          <button onclick="window.closeModal()" class="px-4 py-2 rounded-xl border border-input bg-background hover:bg-muted text-sm font-medium">Cancel</button>
+          <button onclick="window.saveIssue('${issueId||''}')" class="px-5 py-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-bold shadow-sm">
+            💾 ${isEdit ? 'Update Issue' : 'Save Issue'}
+          </button>
+        </div>
+      `);
+    };
+
+    window.saveIssue = async function(issueId) {
+      const month = $('im-month')?.value;
+      const issueTopic = $('im-issue-topic')?.value?.trim();
+      const responsiblePerson = $('im-responsible')?.value?.trim();
+      const status_raw = $('im-status')?.value || 'OPEN';
+      const closingDate = $('im-closing-date')?.value || '';
+
+      if (!month) return toast('Month is required', 'error');
+      if (!issueTopic) return toast('Issue / Topic is required', 'error');
+      if (!responsiblePerson) return toast('Responsible Person is required', 'error');
+
+      // Auto-logic: if closing date is set, force CLOSED + derive closing month
+      let finalStatus = status_raw;
+      let closingMonth = '';
+      if (closingDate) {
+        finalStatus = 'CLOSED';
+        const cd = new Date(closingDate);
+        closingMonth = MONTHS[cd.getMonth()];
+      }
+
+      // Auto-generate Issue Number and PALO Number for new issues
+      let issueNumber = '';
+      let paloNumber = '';
+      if (!issueId) {
+        const existingNums = (state.issues||[]).map(i=>parseInt(i.issueNumber)||0);
+        const nextNum = existingNums.length > 0 ? Math.max(...existingNums) + 1 : 1;
+        issueNumber = String(nextNum).padStart(3, '0');
+        const yr = new Date().getFullYear();
+        paloNumber = `PALO-${yr}-${issueNumber}`;
+      }
+
+      const payload = {
+        month,
+        ...(issueId ? {} : { issueNumber, paloNumber }),
+        issueTopic,
+        actionPlan: $('im-action-plan')?.value?.trim() || '',
+        responsiblePerson,
+        timeline: $('im-timeline')?.value || '',
+        status: finalStatus,
+        remarks: $('im-remarks')?.value?.trim() || '',
+        closingDate,
+        closingMonth,
+        updatedAt: serverTimestamp()
+      };
+
+      try {
+        if (issueId) {
+          await updateDoc(doc(db,'issues',issueId), payload);
+          toast('✅ Issue updated!');
+          await logActivity('update', 'Issue Tracker', `Updated issue: ${issueTopic.slice(0,60)}`);
+        } else {
+          await addDoc(collection(db,'issues'), { ...payload, createdBy: currentUid(), createdAt: serverTimestamp() });
+          toast('✅ Issue saved!');
+          await logActivity('create', 'Issue Tracker', `New issue: ${issueTopic.slice(0,60)}`);
+        }
+        closeModal();
+        navigate('issues');
+      } catch(e) { console.error(e); toast('Failed to save issue', 'error'); }
+    };
+
+    window.closeIssueNow = async function(issueId) {
+      const today = new Date().toISOString().slice(0,10);
+      const closingMonth = MONTHS[new Date().getMonth()];
+      try {
+        await updateDoc(doc(db,'issues',issueId), {
+          status: 'CLOSED', closingDate: today, closingMonth, updatedAt: serverTimestamp()
+        });
+        toast('✅ Issue marked as Closed!');
+        await logActivity('close', 'Issue Tracker', `Closed issue ID: ${issueId}`);
+      } catch(e) { console.error(e); toast('Failed to close issue', 'error'); }
+    };
+
+    window.deleteIssue = async function(issueId) {
+      if (!confirm('Delete this issue? This cannot be undone.')) return;
+      try {
+        await deleteDoc(doc(db,'issues',issueId));
+        toast('Issue deleted');
+        await logActivity('delete', 'Issue Tracker', `Deleted issue ID: ${issueId}`);
+      } catch(e) { console.error(e); toast('Failed to delete issue', 'error'); }
+    };
+
+    /***********************
+     * ISSUE DASHBOARD
+     ***********************/
+    window.navigate_orig_issues = window.navigate;
+
+    // Add to navigate title map and switch (done via inline extend)
+    const _navOrig = window.navigate;
+    window.navigate = function(view, silent=false) {
+      if (view === 'issue-dashboard') {
+        state.view = 'issue-dashboard';
+        $('page-title').textContent = '📊 Issue Dashboard';
+        $('content-area').innerHTML = '';
+        $('content-area').scrollTop = 0;
+        if (!silent) {
+          document.querySelectorAll('.nav-item').forEach(el => {
+            el.classList.remove('bg-primary/10','text-primary','border-r-2','border-primary');
+            el.classList.add('text-muted-foreground','hover:bg-muted');
+            if (el.dataset.view === 'issues') {
+              el.classList.add('bg-primary/10','text-primary','border-r-2','border-primary');
+              el.classList.remove('text-muted-foreground','hover:bg-muted');
+            }
+          });
+        }
+        renderIssueDashboard();
+        return;
+      }
+      _navOrig(view, silent);
+    };
+
+    function renderIssueDashboard() {
+      const issues = state.issues || [];
+      // Build monthly summary
+      const summary = {};
+      MONTHS.forEach(m => { summary[m] = { total:0, OPEN:0, ONGOING:0, CLOSED:0 }; });
+      issues.forEach(i => {
+        const m = i.month;
+        if (!m || !summary[m]) return;
+        summary[m].total++;
+        const s = i.status || 'OPEN';
+        if (summary[m][s] !== undefined) summary[m][s]++;
+      });
+
+      const totalByStatus = { OPEN: issues.filter(i=>i.status==='OPEN').length, ONGOING: issues.filter(i=>i.status==='ONGOING').length, CLOSED: issues.filter(i=>i.status==='CLOSED').length };
+      const closureByMonth = MONTHS.map(m => ({ month: MONTH_SHORT[MONTHS.indexOf(m)], closed: issues.filter(i=>i.closingMonth===m).length }));
+
+      const html = `
+        <div class="max-w-7xl mx-auto space-y-6 animate-slide-in">
+
+          <!-- Header -->
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-xl font-black flex items-center gap-2">📊 Issue Monitoring Dashboard</h2>
+              <p class="text-sm text-muted-foreground">${issues.length} total issues tracked</p>
+            </div>
+            <button onclick="window.navigate('issues')" class="px-4 py-2 bg-muted border border-border rounded-xl text-sm font-semibold hover:bg-muted/80 transition-all flex items-center gap-2">
+              ← Back to Issues
+            </button>
+          </div>
+
+          <!-- Charts Row -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <div class="bg-card border border-border rounded-2xl p-5 shadow-sm">
+              <h4 class="font-bold text-sm mb-4 flex items-center gap-2">🥧 Status Distribution</h4>
+              <div class="h-44"><canvas id="issue-pie-chart"></canvas></div>
+            </div>
+            <div class="bg-card border border-border rounded-2xl p-5 shadow-sm md:col-span-2">
+              <h4 class="font-bold text-sm mb-4 flex items-center gap-2">📈 Monthly Issue Volume</h4>
+              <div class="h-44"><canvas id="issue-bar-chart"></canvas></div>
+            </div>
+          </div>
+
+          <!-- Closure Trend -->
+          <div class="bg-card border border-border rounded-2xl p-5 shadow-sm">
+            <h4 class="font-bold text-sm mb-4 flex items-center gap-2">📉 Monthly Closure Trend</h4>
+            <div class="h-44"><canvas id="issue-line-chart"></canvas></div>
+          </div>
+
+          <!-- Monthly Summary Table (Ladderized) -->
+          <div class="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
+            <div class="px-6 py-4 border-b border-border bg-muted/30">
+              <h4 class="font-bold text-sm">📅 Monthly Summary</h4>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs">
+                <thead class="bg-muted/40 border-b border-border">
+                  <tr>
+                    <th class="px-4 py-3 text-left font-bold text-muted-foreground uppercase">Status</th>
+                    ${MONTH_SHORT.map(m=>`<th class="px-3 py-3 text-center font-bold text-muted-foreground uppercase">${m}</th>`).join('')}
+                    <th class="px-4 py-3 text-center font-bold text-muted-foreground uppercase">Total</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-border">
+                  ${['total','OPEN','ONGOING','CLOSED'].map(row => {
+                    const rowLabel = row === 'total' ? '📋 Total Issues' : row === 'OPEN' ? '🔴 Open' : row === 'ONGOING' ? '🔄 Ongoing' : '✅ Closed';
+                    const rowTotal = MONTHS.reduce((s,m)=>s+(summary[m][row]||0),0);
+                    return `<tr class="${row==='total'?'bg-muted/20 font-bold':'hover:bg-muted/20'}">
+                      <td class="px-4 py-2.5 font-semibold text-xs">${rowLabel}</td>
+                      ${MONTHS.map(m=>{
+                        const val = summary[m][row]||0;
+                        const color = row==='OPEN'&&val>0?'text-red-600 font-bold':row==='ONGOING'&&val>0?'text-orange-600 font-bold':row==='CLOSED'&&val>0?'text-green-600 font-bold':'text-muted-foreground';
+                        return `<td class="px-3 py-2.5 text-center ${color}">${val||'—'}</td>`;
+                      }).join('')}
+                      <td class="px-4 py-2.5 text-center font-black text-sm ${row==='OPEN'&&rowTotal>0?'text-red-600':row==='ONGOING'&&rowTotal>0?'text-orange-600':row==='CLOSED'&&rowTotal>0?'text-green-600':''}">${rowTotal||'—'}</td>
+                    </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      `;
+      $('content-area').innerHTML = html;
+
+      // Render charts after DOM update
+      setTimeout(() => {
+        // Pie chart
+        const pieCtx = $('issue-pie-chart')?.getContext('2d');
+        if (pieCtx) {
+          new Chart(pieCtx, {
+            type: 'doughnut',
+            data: {
+              labels: ['Open','Ongoing','Closed'],
+              datasets: [{ data: [totalByStatus.OPEN, totalByStatus.ONGOING, totalByStatus.CLOSED], backgroundColor: ['#ef4444','#f97316','#22c55e'], borderWidth: 0 }]
+            },
+            options: { responsive:true, maintainAspectRatio:false, plugins: { legend:{ position:'bottom', labels:{font:{size:11},padding:12} } } }
+          });
+        }
+        // Bar chart
+        const barCtx = $('issue-bar-chart')?.getContext('2d');
+        if (barCtx) {
+          new Chart(barCtx, {
+            type: 'bar',
+            data: {
+              labels: MONTH_SHORT,
+              datasets: [
+                { label:'Open', data: MONTHS.map(m=>summary[m].OPEN), backgroundColor:'#ef4444' },
+                { label:'Ongoing', data: MONTHS.map(m=>summary[m].ONGOING), backgroundColor:'#f97316' },
+                { label:'Closed', data: MONTHS.map(m=>summary[m].CLOSED), backgroundColor:'#22c55e' }
+              ]
+            },
+            options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:12}}}, scales:{x:{stacked:true,ticks:{font:{size:10}}},y:{stacked:true,ticks:{stepSize:1,font:{size:10}}}} }
+          });
+        }
+        // Line chart
+        const lineCtx = $('issue-line-chart')?.getContext('2d');
+        if (lineCtx) {
+          new Chart(lineCtx, {
+            type: 'line',
+            data: {
+              labels: MONTH_SHORT,
+              datasets: [{ label:'Issues Closed', data: closureByMonth.map(c=>c.closed), borderColor:'#22c55e', backgroundColor:'rgba(34,197,94,0.1)', tension:0.4, fill:true, pointBackgroundColor:'#22c55e' }]
+            },
+            options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:12}}}, scales:{y:{beginAtZero:true,ticks:{stepSize:1,font:{size:10}}},x:{ticks:{font:{size:10}}}} }
+          });
+        }
+      }, 100);
+    }
 
 (async function boot() {
       try {
