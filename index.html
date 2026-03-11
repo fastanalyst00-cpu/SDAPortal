@@ -2006,12 +2006,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
                 ${state.projects.map(p => `<option value="${p.id}" ${projectId === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
               </select>
             </div>
-            <div>
-              <label class="block text-sm font-medium mb-1">Assigned To ${isAdmin ? '' : '<span class=\"text-xs text-muted-foreground\">(view only)</span>'}</label>
-              <select id="t-assign" ${!isAdmin ? 'disabled class="w-full h-10 px-3 rounded-md border border-input bg-muted opacity-60"' : 'class="w-full h-10 px-3 rounded-md border border-input bg-background"'}>
-                ${state.users.filter(u => u.status !== 'inactive').map(u => `<option value="${u.id}" ${task?.assignedTo === u.id ? 'selected' : ''}>${u.name || u.email}</option>`).join('')}
-              </select>
-            </div>
+            ${isAdmin ? `<div>
+              <label class="block text-sm font-medium mb-1">Assign To <span class="text-xs text-muted-foreground">(select one or more)</span></label>
+              <div id="ms-t-assign-wrap"></div>
+            </div>` : `<div class="hidden"><input type="hidden" id="t-assign-self" value="${currentUid()}"></div>`}
             <div>
               <label class="block text-sm font-medium mb-1">Status</label>
               <select id="t-status" class="w-full h-10 px-3 rounded-md border border-input bg-background">
@@ -2055,10 +2053,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
         </div>
       `;
       showModal(content);
-      // Init multi-select for assignees
-      const assignOptions = state.users.filter(u=>u.status!=='inactive').map(u=>({value:u.id,label:u.name||u.email}));
-      const defaultAssignees = task?.assignedToList || (task?.assignedTo ? [task.assignedTo] : []);
-      initMultiSelect('t-assign-ms','ms-t-assign-wrap',assignOptions,defaultAssignees,'Select assignee(s)...');
+      // Init multi-select for assignees (admin only)
+      if (isAdmin) {
+        const assignOptions = state.users.filter(u=>u.status!=='inactive').map(u=>({value:u.id,label:u.name||u.email}));
+        const defaultAssignees = task?.assignedToList || (task?.assignedTo ? [task.assignedTo] : []);
+        initMultiSelect('t-assign-ms','ms-t-assign-wrap',assignOptions,defaultAssignees,'Select assignee(s)...');
+      }
       // Show/hide project based on type
       const tTypeEl = $('t-type');
       if(tTypeEl) {
@@ -2096,8 +2096,16 @@ document.addEventListener('DOMContentLoaded', ()=>{
         if (txt.value.trim()) checklistItems.push({ text: txt.value.trim(), done: cb.checked });
       });
 
-      const assignedList = getMultiSelectValues('t-assign-ms');
-      const primaryAssignee = assignedList[0] || '';
+      const isAdmin = state.currentUserDoc?.role === 'admin';
+      let assignedList;
+      if (isAdmin) {
+        assignedList = getMultiSelectValues('t-assign-ms');
+        if (!assignedList.length) assignedList = [currentUid()];
+      } else {
+        // Non-admin: always assigned to themselves
+        assignedList = [currentUid()];
+      }
+      const primaryAssignee = assignedList[0] || currentUid();
       const payload = {
         title,
         description: $('t-desc').value,
@@ -2118,18 +2126,20 @@ document.addEventListener('DOMContentLoaded', ()=>{
         if (taskId) {
           const oldTask = state.tasks.find(t => t.id === taskId);
           await updateDoc(doc(db, 'tasks', taskId), payload);
-          // Notify if assignee changed or status changed
-          if (oldTask && oldTask.assignedTo !== payload.assignedTo) {
-            notify(payload.assignedTo, `✅ Task "${payload.title}" has been reassigned to you — Due: ${payload.dueDate || 'TBD'}`, `tasks:${taskId}`, 'task');
-          }
-          if (payload.assignedBy && payload.assignedBy !== payload.assignedTo) {
-            notify(payload.assignedBy, `✅ Task "${payload.title}" updated — assigned to ${getUserName(payload.assignedTo)}`, `tasks:${taskId}`, 'task');
+          // Notify all newly added assignees
+          const oldList = oldTask?.assignedToList || (oldTask?.assignedTo ? [oldTask.assignedTo] : []);
+          const newlyAdded = assignedList.filter(aid => !oldList.includes(aid));
+          for (const aid of newlyAdded) {
+            if (aid !== currentUid()) {
+              await notify(aid, `✅ Task "${payload.title}" has been assigned to you — Due: ${payload.dueDate || 'TBD'} (${payload.priority || 'Medium'} priority)`, `tasks:${taskId}`, 'task');
+            }
           }
           await logActivity('update', 'Tasks', 'Updated task: '+payload.title);
           toast('Task updated');
         } else {
           const added = await addDoc(collection(db, 'tasks'), payload);
-          for (const aid of (payload.assignedToList||[payload.assignedTo]).filter(Boolean)) {
+          // Notify all assignees except self
+          for (const aid of assignedList) {
             if (aid !== currentUid()) {
               await notify(aid, `✅ New task assigned to you: "${payload.title}" — Due: ${payload.dueDate || 'TBD'} (${payload.priority || 'Medium'} priority)`, `tasks:${added.id}`, 'task');
               toast(`🔔 ${getUserName(aid)} notified`, 'info');
@@ -3715,6 +3725,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
      * REPORTS
      ***********************/
     function renderReports() {
+      const isAdmin = state.currentUserDoc?.role === 'admin';
       const now = new Date();
       // Build real monthly trend
       const months = [], createdByMonth = [], completedByMonth = [], overdueByMonth = [];
@@ -3734,14 +3745,17 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const statusColors = {'Open':'#3b82f6','In Progress':'#f59e0b','For Review':'#8b5cf6','Completed':'#22c55e','Closed':'#6b7280'};
       const totalTasks = state.tasks.length;
       const completedTasks = state.tasks.filter(t=>t.status==='Completed').length;
-      const overdueTasks = state.tasks.filter(t=>t.dueDate && new Date(t.dueDate)<now && t.status!=='Completed').length;
+      const closedTasks = state.tasks.filter(t=>t.status==='Closed').length;
+      const openTasks = state.tasks.filter(t=>t.status==='Open').length;
+      const inProgressTasks = state.tasks.filter(t=>t.status==='In Progress').length;
+      const overdueTasks = state.tasks.filter(t=>t.dueDate && new Date(t.dueDate)<now && t.status!=='Completed' && t.status!=='Closed').length;
       const compRate = totalTasks ? Math.round((completedTasks/totalTasks)*100) : 0;
       const quizResults = state.allQuizResults || [];
       const avgQuizScore = quizResults.length ? Math.round(quizResults.reduce((s,r)=>s+(r.percentage||0),0)/quizResults.length) : 0;
       const userStats = state.users.map(u => {
-        const uts=state.tasks.filter(t=>t.assignedTo===u.id);
+        const uts=state.tasks.filter(t=>t.assignedTo===u.id||(t.assignedToList||[]).includes(u.id));
         const comp=uts.filter(t=>t.status==='Completed').length;
-        const over=uts.filter(t=>t.dueDate&&new Date(t.dueDate)<now&&t.status!=='Completed').length;
+        const over=uts.filter(t=>t.dueDate&&new Date(t.dueDate)<now&&t.status!=='Completed'&&t.status!=='Closed').length;
         const eff=uts.length?Math.round((comp/uts.length)*100):0;
         const uR=quizResults.filter(r=>r.userId===u.id);
         const avgQ=uR.length?Math.round(uR.reduce((s,r)=>s+(r.percentage||0),0)/uR.length):0;
@@ -3756,6 +3770,44 @@ document.addEventListener('DOMContentLoaded', ()=>{
             </div>
             <button onclick="window.exportReportCSV()" class="h-9 px-4 bg-primary text-primary-foreground rounded-lg text-sm font-bold hover:bg-primary/90">📥 Export CSV</button>
           </div>
+
+          ${isAdmin ? `
+          <!-- Admin Task Report Summary -->
+          <div class="bg-gradient-to-r from-slate-800 via-slate-700 to-slate-900 rounded-2xl p-5 text-white shadow-xl">
+            <div class="flex items-center gap-2 mb-4">
+              <span class="text-lg">📋</span>
+              <h4 class="font-bold text-base">Task Report Summary</h4>
+              <span class="text-xs text-white/50 ml-auto">All-time · ${totalTasks} total</span>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div class="bg-white/10 rounded-xl p-4 text-center hover:bg-white/15 transition-colors">
+                <div class="text-3xl font-black text-white">${totalTasks}</div>
+                <div class="text-xs text-white/60 mt-1">📋 Generated</div>
+                <div class="text-[10px] text-white/40 mt-0.5">All tasks created</div>
+              </div>
+              <div class="bg-white/10 rounded-xl p-4 text-center hover:bg-white/15 transition-colors">
+                <div class="text-3xl font-black text-blue-300">${openTasks}</div>
+                <div class="text-xs text-white/60 mt-1">📂 Open</div>
+                <div class="text-[10px] text-white/40 mt-0.5">${totalTasks?Math.round((openTasks/totalTasks)*100):0}% of total</div>
+              </div>
+              <div class="bg-white/10 rounded-xl p-4 text-center hover:bg-white/15 transition-colors">
+                <div class="text-3xl font-black text-green-300">${completedTasks}</div>
+                <div class="text-xs text-white/60 mt-1">✅ Completed</div>
+                <div class="text-[10px] text-white/40 mt-0.5">${compRate}% completion rate</div>
+              </div>
+              <div class="bg-white/10 rounded-xl p-4 text-center hover:bg-white/15 transition-colors">
+                <div class="text-3xl font-black text-gray-300">${closedTasks}</div>
+                <div class="text-xs text-white/60 mt-1">🔒 Closed</div>
+                <div class="text-[10px] text-white/40 mt-0.5">${totalTasks?Math.round((closedTasks/totalTasks)*100):0}% of total</div>
+              </div>
+            </div>
+            <div class="mt-3 pt-3 border-t border-white/10 grid grid-cols-3 gap-2 text-center">
+              <div><span class="text-yellow-300 font-bold">${inProgressTasks}</span><span class="text-white/50 text-xs ml-1">In Progress</span></div>
+              <div><span class="text-red-300 font-bold">${overdueTasks}</span><span class="text-white/50 text-xs ml-1">Overdue</span></div>
+              <div><span class="text-purple-300 font-bold">${statusCounts['For Review']||0}</span><span class="text-white/50 text-xs ml-1">For Review</span></div>
+            </div>
+          </div>` : ''}
+
           <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
             ${[{icon:'📋',label:'Total Tasks',val:totalTasks,cls:'text-foreground'},
                {icon:'✅',label:'Completed',val:completedTasks,cls:'text-green-600'},
