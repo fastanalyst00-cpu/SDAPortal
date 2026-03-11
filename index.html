@@ -2002,7 +2002,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
             <div>
               <label class="block text-sm font-medium mb-1">Project</label>
               <select id="t-project" class="w-full h-10 px-3 rounded-md border border-input bg-background">
-                <option value="">— Rate Task —</option>
+                <option value="">— Assigned Project Task —</option>
                 ${state.projects.map(p => `<option value="${p.id}" ${projectId === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
               </select>
             </div>
@@ -4716,6 +4716,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
     window.openNewMeetingModal = function(meetingId=null) {
       const m = meetingId ? (state.meetings||[]).find(x=>x.id===meetingId) : null;
       const isEdit = !!m;
+
+      // Build datetime value: combine date + time for datetime-local input
+      const mtgDateVal = m?.meetingDate || '';
+      const mtgStartVal = m?.startTime || '';
+      const mtgEndVal = m?.endTime || '';
+      const dtStart = mtgDateVal && mtgStartVal ? `${mtgDateVal}T${mtgStartVal}` : (mtgDateVal ? `${mtgDateVal}T08:00` : '');
+      const dtEnd = mtgDateVal && mtgEndVal ? `${mtgDateVal}T${mtgEndVal}` : '';
+
       const agendaItems = (m?.agendaItems||['','']).map((a,i)=>`
         <div class="flex gap-2 items-center agenda-item">
           <span class="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">${i+1}</span>
@@ -4724,82 +4732,99 @@ document.addEventListener('DOMContentLoaded', ()=>{
         </div>
       `).join('');
 
-      // Build attendee rows from saved data or empty rows
       const savedAttendees = m?.attendeesList || [];
-      const initRows = savedAttendees.length > 0 ? savedAttendees : [{name:'',position:'',department:'',signature:''}];
+      const initRows = savedAttendees.length > 0 ? savedAttendees : [{name:'',position:'',department:''}];
       const attendeeRows = initRows.map((a,i) => `
         <tr class="attendee-row">
-          <td class="px-2 py-1 text-center text-xs text-muted-foreground font-bold">${i+1}</td>
-          <td class="px-2 py-1"><input class="att-name w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" value="${(a.name||'').replace(/"/g,'&quot;')}" placeholder="Full name"></td>
-          <td class="px-2 py-1"><input class="att-position w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" value="${(a.position||'').replace(/"/g,'&quot;')}" placeholder="Position/Title"></td>
-          <td class="px-2 py-1"><input class="att-dept w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" value="${(a.department||'').replace(/"/g,'&quot;')}" placeholder="Department/Org"></td>
-          <td class="px-2 py-1 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive hover:text-destructive/80 text-sm px-1">✕</button></td>
+          <td class="px-2 py-1.5 text-center text-xs text-muted-foreground font-bold">${i+1}</td>
+          <td class="px-2 py-1.5"><input class="att-name w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" value="${(a.name||'').replace(/"/g,'&quot;')}" placeholder="Full name"></td>
+          <td class="px-2 py-1.5"><input class="att-position w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" value="${(a.position||'').replace(/"/g,'&quot;')}" placeholder="Position/Title"></td>
+          <td class="px-2 py-1.5"><input class="att-dept w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" value="${(a.department||'').replace(/"/g,'&quot;')}" placeholder="Department/Org"></td>
+          <td class="px-2 py-1.5 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive hover:text-destructive/80 text-sm px-1">✕</button></td>
         </tr>
       `).join('');
+
+      const savedActions = m?.actionItems || [];
+      const actionRows = savedActions.map((a,i) => `
+        <tr class="action-item-row">
+          <td class="px-2 py-1.5 font-bold text-muted-foreground text-xs text-center">${i+1}</td>
+          <td class="px-2 py-1.5"><input class="ai-details w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${(a.details||'').replace(/"/g,'&quot;')}" placeholder="Item details..."></td>
+          <td class="px-2 py-1.5"><input class="ai-action w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${(a.action||'').replace(/"/g,'&quot;')}" placeholder="Action required..."></td>
+          <td class="px-2 py-1.5"><input class="ai-due type=date w-full h-7 px-2 rounded border border-input bg-background text-xs" type="date" value="${a.dueDate||''}"></td>
+          <td class="px-2 py-1.5"><input class="ai-resp w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${(a.responsible||'').replace(/"/g,'&quot;')}" placeholder="Person..."></td>
+          <td class="px-2 py-1.5 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive hover:text-destructive/80 p-1">×</button></td>
+        </tr>`).join('');
+
+      const savedNextSteps = m?.nextSteps || [];
+      const nextStepRows = savedNextSteps.map((s,i) => `
+        <tr class="next-step-row">
+          <td class="px-2 py-1.5 font-bold text-muted-foreground text-xs text-center">${i+1}</td>
+          <td class="px-2 py-1.5"><input class="ns-details w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${(s.details||'').replace(/"/g,'&quot;')}" placeholder="Step description..."></td>
+          <td class="px-2 py-1.5"><input class="ns-owner w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${(s.owner||'').replace(/"/g,'&quot;')}" placeholder="Owner..."></td>
+          <td class="px-2 py-1.5"><input type="date" class="ns-due w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${s.dueDate||''}"></td>
+          <td class="px-2 py-1.5"><select class="ns-status w-full h-7 px-2 rounded border border-input bg-background text-xs"><option ${(s.status||'Pending')==='Pending'?'selected':''}>Pending</option><option ${s.status==='In Progress'?'selected':''}>In Progress</option><option ${s.status==='Done'?'selected':''}>Done</option></select></td>
+          <td class="px-2 py-1.5 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive hover:text-destructive/80 p-1">×</button></td>
+        </tr>`).join('');
 
       showModal(`
         <div class="p-6 border-b border-border flex justify-between items-center bg-muted/30 rounded-t-xl">
           <h3 class="font-bold text-lg">${isEdit?'✏️ Edit Meeting':'📅 New Meeting'}</h3>
           <button onclick="closeModal()" class="text-muted-foreground hover:text-foreground">✕</button>
         </div>
-        <div class="p-6 space-y-5 overflow-y-auto max-h-[70vh]">
+        <div class="p-6 space-y-5 overflow-y-auto max-h-[75vh]">
           <!-- Title + Type -->
           <div class="grid grid-cols-2 gap-4">
             <div class="col-span-2">
-              <label class="block text-sm font-semibold mb-1">Meeting Title *</label>
+              <label class="block text-sm font-semibold mb-1">Meeting Title <span class="text-destructive">*</span></label>
               <input id="mtg-title" value="${m?.title||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="e.g. Q3 Planning Session">
             </div>
             <div>
-              <label class="block text-sm font-semibold mb-1">Type *</label>
+              <label class="block text-sm font-semibold mb-1">Type <span class="text-destructive">*</span></label>
               <select id="mtg-type" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
                 ${['Regular Meeting','Emergency Meeting','Board Meeting','Planning Session','Review Meeting'].map(t=>`<option ${m?.meetingType===t?'selected':''}>${t}</option>`).join('')}
               </select>
             </div>
             <div>
-              <label class="block text-sm font-semibold mb-1">Location / Platform</label>
+              <label class="block text-sm font-semibold mb-1">Location / Platform <span class="text-destructive">*</span></label>
               <input id="mtg-location" value="${m?.location||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="e.g. Zoom / Conference Room A">
             </div>
             <div>
-              <label class="block text-sm font-semibold mb-1">Date *</label>
-              <input id="mtg-date" type="date" value="${m?.meetingDate||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-sm font-semibold mb-1">Start Time</label>
-                <input id="mtg-start" type="time" value="${m?.startTime||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
-              </div>
-              <div>
-                <label class="block text-sm font-semibold mb-1">End Time</label>
-                <input id="mtg-end" type="time" value="${m?.endTime||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
-              </div>
+              <label class="block text-sm font-semibold mb-1">Start Date & Time <span class="text-destructive">*</span></label>
+              <input id="mtg-start-dt" type="datetime-local" value="${dtStart}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
             </div>
             <div>
-              <label class="block text-sm font-semibold mb-1">Facilitator</label>
+              <label class="block text-sm font-semibold mb-1">End Date & Time <span class="text-destructive">*</span></label>
+              <input id="mtg-end-dt" type="datetime-local" value="${dtEnd}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
+            </div>
+            <div>
+              <label class="block text-sm font-semibold mb-1">Facilitator <span class="text-destructive">*</span></label>
               <select id="mtg-facilitator" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
                 <option value="">— Select —</option>
                 ${state.users.filter(u=>u.status!=='inactive').map(u=>`<option value="${u.id}" ${m?.facilitatorId===u.id?'selected':''}>${u.name||u.email}</option>`).join('')}
               </select>
             </div>
             <div>
-              <label class="block text-sm font-semibold mb-1">Minutes Taker</label>
+              <label class="block text-sm font-semibold mb-1">Minutes Taker <span class="text-destructive">*</span></label>
               <select id="mtg-secretary" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
                 <option value="">— Select —</option>
                 ${state.users.filter(u=>u.status!=='inactive').map(u=>`<option value="${u.id}" ${m?.secretaryId===u.id?'selected':''}>${u.name||u.email}</option>`).join('')}
               </select>
             </div>
           </div>
+
           <!-- Agenda -->
           <div>
             <div class="flex items-center justify-between mb-2">
-              <label class="text-sm font-semibold">Agenda Items</label>
+              <label class="text-sm font-semibold">📋 Agenda Items <span class="text-destructive">*</span></label>
               <button onclick="window.addAgendaItem()" class="text-xs text-primary hover:underline">＋ Add Item</button>
             </div>
             <div id="agenda-container" class="space-y-2">${agendaItems}</div>
           </div>
+
           <!-- Attendees Table -->
           <div>
             <div class="flex items-center justify-between mb-2">
-              <label class="text-sm font-semibold">👥 Attendees</label>
+              <label class="text-sm font-semibold">👥 Attendees <span class="text-destructive">*</span></label>
               <button onclick="window.addAttendeeRow()" class="text-xs text-primary hover:underline font-medium">＋ Add Row</button>
             </div>
             <div class="border border-border rounded-xl overflow-hidden">
@@ -4813,9 +4838,53 @@ document.addEventListener('DOMContentLoaded', ()=>{
                     <th class="px-2 py-2 w-8"></th>
                   </tr>
                 </thead>
-                <tbody id="attendee-table-body">
-                  ${attendeeRows}
-                </tbody>
+                <tbody id="attendee-table-body">${attendeeRows}</tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Action Items -->
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <label class="text-sm font-semibold">⚡ Action Items</label>
+              <button onclick="window.addMtgActionItem()" class="text-xs text-primary hover:underline font-medium">＋ Add Item</button>
+            </div>
+            <div class="border border-border rounded-xl overflow-hidden">
+              <table class="w-full text-xs">
+                <thead class="bg-muted/40 border-b border-border">
+                  <tr>
+                    <th class="px-2 py-2 text-center w-8 text-muted-foreground">#</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Item Details</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Action Required</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Due Date</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Responsible</th>
+                    <th class="px-2 py-2 w-8"></th>
+                  </tr>
+                </thead>
+                <tbody id="mtg-action-items-body" class="divide-y divide-border">${actionRows}</tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Next Steps -->
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <label class="text-sm font-semibold">🔜 Next Steps</label>
+              <button onclick="window.addMtgNextStep()" class="text-xs text-primary hover:underline font-medium">＋ Add Step</button>
+            </div>
+            <div class="border border-border rounded-xl overflow-hidden">
+              <table class="w-full text-xs">
+                <thead class="bg-muted/40 border-b border-border">
+                  <tr>
+                    <th class="px-2 py-2 text-center w-8 text-muted-foreground">#</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Step Description</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Owner</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Due Date</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Status</th>
+                    <th class="px-2 py-2 w-8"></th>
+                  </tr>
+                </thead>
+                <tbody id="mtg-next-steps-body" class="divide-y divide-border">${nextStepRows}</tbody>
               </table>
             </div>
           </div>
@@ -4827,6 +4896,38 @@ document.addEventListener('DOMContentLoaded', ()=>{
           </button>
         </div>
       `);
+    };
+
+    window.addMtgActionItem = function() {
+      const tbody = $('mtg-action-items-body');
+      if (!tbody) return;
+      const rowNum = tbody.querySelectorAll('.action-item-row').length + 1;
+      const tr = document.createElement('tr');
+      tr.className = 'action-item-row';
+      tr.innerHTML = `
+        <td class="px-2 py-1.5 font-bold text-muted-foreground text-xs text-center">${rowNum}</td>
+        <td class="px-2 py-1.5"><input class="ai-details w-full h-7 px-2 rounded border border-input bg-background text-xs" placeholder="Item details..."></td>
+        <td class="px-2 py-1.5"><input class="ai-action w-full h-7 px-2 rounded border border-input bg-background text-xs" placeholder="Action required..."></td>
+        <td class="px-2 py-1.5"><input type="date" class="ai-due w-full h-7 px-2 rounded border border-input bg-background text-xs"></td>
+        <td class="px-2 py-1.5"><input class="ai-resp w-full h-7 px-2 rounded border border-input bg-background text-xs" placeholder="Person..."></td>
+        <td class="px-2 py-1.5 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive p-1">×</button></td>`;
+      tbody.appendChild(tr);
+    };
+
+    window.addMtgNextStep = function() {
+      const tbody = $('mtg-next-steps-body');
+      if (!tbody) return;
+      const rowNum = tbody.querySelectorAll('.next-step-row').length + 1;
+      const tr = document.createElement('tr');
+      tr.className = 'next-step-row';
+      tr.innerHTML = `
+        <td class="px-2 py-1.5 font-bold text-muted-foreground text-xs text-center">${rowNum}</td>
+        <td class="px-2 py-1.5"><input class="ns-details w-full h-7 px-2 rounded border border-input bg-background text-xs" placeholder="Step description..."></td>
+        <td class="px-2 py-1.5"><input class="ns-owner w-full h-7 px-2 rounded border border-input bg-background text-xs" placeholder="Owner..."></td>
+        <td class="px-2 py-1.5"><input type="date" class="ns-due w-full h-7 px-2 rounded border border-input bg-background text-xs"></td>
+        <td class="px-2 py-1.5"><select class="ns-status w-full h-7 px-2 rounded border border-input bg-background text-xs"><option>Pending</option><option>In Progress</option><option>Done</option></select></td>
+        <td class="px-2 py-1.5 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive p-1">×</button></td>`;
+      tbody.appendChild(tr);
     };
 
     window.addAttendeeRow = function() {
@@ -4847,11 +4948,27 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
     window.saveMeeting = async function(meetingId='') {
       const title = $('mtg-title')?.value?.trim();
-      const meetingDate = $('mtg-date')?.value;
+      const startDt = $('mtg-start-dt')?.value;
+      const endDt = $('mtg-end-dt')?.value;
+      const location = $('mtg-location')?.value?.trim();
+      const facilitatorId = $('mtg-facilitator')?.value||'';
+      const secretaryId = $('mtg-secretary')?.value||'';
       if (!title) return toast('Meeting title required','error');
-      if (!meetingDate) return toast('Meeting date required','error');
+      if (!startDt) return toast('Start date & time required','error');
+      if (!endDt) return toast('End date & time required','error');
+      if (!location) return toast('Location / Platform required','error');
+      if (!facilitatorId) return toast('Facilitator required','error');
+      if (!secretaryId) return toast('Minutes Taker required','error');
+
+      // Parse datetime-local values
+      const startDate = startDt ? new Date(startDt) : null;
+      const meetingDate = startDt ? startDt.slice(0,10) : '';
+      const startTime = startDt ? startDt.slice(11,16) : '';
+      const endTime = endDt ? endDt.slice(11,16) : '';
+
       const agendaItems = Array.from(document.querySelectorAll('.agenda-input')).map(i=>i.value.trim()).filter(Boolean);
-      // Collect attendees from table
+      if (!agendaItems.length) return toast('At least one agenda item required','error');
+
       const attendeesList = [];
       document.querySelectorAll('.attendee-row').forEach(row => {
         const name = row.querySelector('.att-name')?.value?.trim()||'';
@@ -4859,18 +4976,42 @@ document.addEventListener('DOMContentLoaded', ()=>{
         const department = row.querySelector('.att-dept')?.value?.trim()||'';
         if (name) attendeesList.push({ name, position, department });
       });
+      if (!attendeesList.length) return toast('At least one attendee required','error');
+
+      // Collect action items from modal table
+      const actionItems = [];
+      document.querySelectorAll('#mtg-action-items-body .action-item-row').forEach((row, i) => {
+        const details = row.querySelector('.ai-details')?.value?.trim()||'';
+        const action = row.querySelector('.ai-action')?.value?.trim()||'';
+        const dueDate = row.querySelector('.ai-due')?.value?.trim()||'';
+        const responsible = row.querySelector('.ai-resp')?.value?.trim()||'';
+        if (details||action) actionItems.push({ itemNo: i+1, details, action, dueDate, responsible });
+      });
+
+      // Collect next steps
+      const nextSteps = [];
+      document.querySelectorAll('#mtg-next-steps-body .next-step-row').forEach((row, i) => {
+        const details = row.querySelector('.ns-details')?.value?.trim()||'';
+        const owner = row.querySelector('.ns-owner')?.value?.trim()||'';
+        const dueDate = row.querySelector('.ns-due')?.value?.trim()||'';
+        const status = row.querySelector('.ns-status')?.value||'Pending';
+        if (details) nextSteps.push({ itemNo: i+1, details, owner, dueDate, status });
+      });
+
       const payload = {
         title,
         meetingType: $('mtg-type')?.value||'Regular Meeting',
         meetingDate,
-        startTime: $('mtg-start')?.value||'',
-        endTime: $('mtg-end')?.value||'',
-        location: $('mtg-location')?.value||'',
-        facilitatorId: $('mtg-facilitator')?.value||'',
-        secretaryId: $('mtg-secretary')?.value||'',
+        startTime,
+        endTime,
+        location,
+        facilitatorId,
+        secretaryId,
         agendaItems,
         attendeesList,
-        attendees: attendeesList.map(a => a.name), // keep for backward compat display
+        attendees: attendeesList.map(a => a.name),
+        actionItems,
+        nextSteps,
         updatedAt: new Date().toISOString(),
       };
       try {
@@ -5000,27 +5141,76 @@ document.addEventListener('DOMContentLoaded', ()=>{
                 </div>
               </div>
 
-              <!-- Right: Minutes -->
-              <div class="space-y-4">
+              <!-- Right: Action Items + Next Steps -->
+              <div class="space-y-5">
+                <!-- Action Items -->
                 <div>
                   <div class="flex items-center justify-between mb-3">
-                    <h3 class="font-bold text-sm uppercase tracking-wide text-muted-foreground">📝 Minutes of Meeting</h3>
-                    ${canEdit ? `<button onclick="window.openMinutesModal('${m.id}')" class="text-xs text-primary hover:underline font-medium">${m.minutesContent?'Edit':'Write'} Minutes</button>` : ''}
+                    <h3 class="font-bold text-sm uppercase tracking-wide text-muted-foreground">⚡ Action Items</h3>
+                    ${canEdit ? `<button onclick="window.openNewMeetingModal('${m.id}')" class="text-xs text-primary hover:underline font-medium">Edit</button>` : ''}
                   </div>
-                  ${m.minutesContent ? `
-                  <div class="bg-muted/20 rounded-xl p-4 border border-border">
-                    <div class="ql-render ql-editor text-sm leading-relaxed">${m.minutesContent}</div>
-                  </div>` : `
-                  <div class="bg-muted/10 rounded-xl p-6 border border-dashed border-border text-center">
-                    <div class="text-3xl mb-2">📝</div>
-                    <p class="text-sm text-muted-foreground">No minutes recorded yet</p>
-                    ${canEdit ? `<button onclick="window.openMinutesModal('${m.id}')" class="mt-2 text-xs text-primary hover:underline">Add minutes now</button>` : ''}
-                  </div>`}
+                  ${(m.actionItems||[]).length > 0 ? `
+                  <div class="border border-border rounded-xl overflow-hidden">
+                    <table class="w-full text-xs">
+                      <thead class="bg-muted/40 border-b border-border">
+                        <tr>
+                          <th class="px-3 py-2 text-center w-8 text-muted-foreground">#</th>
+                          <th class="px-3 py-2 text-left text-muted-foreground">Details</th>
+                          <th class="px-3 py-2 text-left text-muted-foreground">Action</th>
+                          <th class="px-3 py-2 text-left text-muted-foreground">Due</th>
+                          <th class="px-3 py-2 text-left text-muted-foreground">Responsible</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-border">
+                        ${(m.actionItems||[]).map((a,i)=>`
+                          <tr class="hover:bg-muted/20">
+                            <td class="px-3 py-2 text-center text-muted-foreground font-bold">${i+1}</td>
+                            <td class="px-3 py-2 font-medium">${a.details||'—'}</td>
+                            <td class="px-3 py-2 text-muted-foreground">${a.action||'—'}</td>
+                            <td class="px-3 py-2 text-muted-foreground whitespace-nowrap">${a.dueDate||'—'}</td>
+                            <td class="px-3 py-2 text-muted-foreground">${a.responsible||'—'}</td>
+                          </tr>`).join('')}
+                      </tbody>
+                    </table>
+                  </div>` : `<div class="bg-muted/10 rounded-xl p-4 border border-dashed border-border text-center text-xs text-muted-foreground">No action items recorded</div>`}
                 </div>
-                ${m.minutesFileUrl ? `
-                <a href="${m.minutesFileUrl}" target="_blank" class="flex items-center gap-2 p-3 rounded-xl border border-border hover:bg-muted transition-all text-sm font-medium">
-                  📎 ${m.minutesFileName||'Download Minutes'} <span class="text-xs text-muted-foreground ml-auto">Download →</span>
-                </a>` : ''}
+
+                <!-- Next Steps -->
+                <div>
+                  <h3 class="font-bold text-sm uppercase tracking-wide text-muted-foreground mb-3">🔜 Next Steps</h3>
+                  ${(m.nextSteps||[]).length > 0 ? `
+                  <div class="border border-border rounded-xl overflow-hidden">
+                    <table class="w-full text-xs">
+                      <thead class="bg-muted/40 border-b border-border">
+                        <tr>
+                          <th class="px-3 py-2 text-center w-8 text-muted-foreground">#</th>
+                          <th class="px-3 py-2 text-left text-muted-foreground">Description</th>
+                          <th class="px-3 py-2 text-left text-muted-foreground">Owner</th>
+                          <th class="px-3 py-2 text-left text-muted-foreground">Due</th>
+                          <th class="px-3 py-2 text-left text-muted-foreground">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-border">
+                        ${(m.nextSteps||[]).map((s,i)=>{
+                          const stCls = s.status==='Done'?'text-green-600 bg-green-50 dark:bg-green-900/20':s.status==='In Progress'?'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20':'text-blue-600 bg-blue-50 dark:bg-blue-900/20';
+                          return `<tr class="hover:bg-muted/20">
+                            <td class="px-3 py-2 text-center text-muted-foreground font-bold">${i+1}</td>
+                            <td class="px-3 py-2 font-medium">${s.details||'—'}</td>
+                            <td class="px-3 py-2 text-muted-foreground">${s.owner||'—'}</td>
+                            <td class="px-3 py-2 text-muted-foreground whitespace-nowrap">${s.dueDate||'—'}</td>
+                            <td class="px-3 py-2"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${stCls}">${s.status||'Pending'}</span></td>
+                          </tr>`;}).join('')}
+                      </tbody>
+                    </table>
+                  </div>` : `<div class="bg-muted/10 rounded-xl p-4 border border-dashed border-border text-center text-xs text-muted-foreground">No next steps recorded</div>`}
+                </div>
+
+                <!-- Download PDF -->
+                <div class="pt-2">
+                  <button onclick="window.downloadMinutesPDF('${m.id}')" class="w-full h-9 rounded-xl border border-border hover:bg-muted text-xs font-semibold transition-colors flex items-center justify-center gap-2">
+                    📄 Download / Print PDF
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -5133,6 +5323,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const m = (state.meetings||[]).find(x=>x.id===meetingId);
       if (!m) return;
       const actions = m.actionItems || [];
+      const nextSteps = m.nextSteps || [];
       const facilitator = state.users.find(u=>u.id===m.facilitatorId);
       const secretary = state.users.find(u=>u.id===m.secretaryId);
       const attendeesList = m.attendeesList || [];
@@ -5149,7 +5340,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
           .info-row{display:flex;gap:6px} .info-label{font-weight:bold;min-width:110px;color:#555} .info-val{color:#111}
           table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
           th{background:#f0f0f0;border:1px solid #ccc;padding:7px 10px;text-align:left;font-weight:bold}
-          td{border:1px solid #ccc;padding:6px 10px}
+          td{border:1px solid #ccc;padding:6px 10px;vertical-align:top}
           tr:nth-child(even) td{background:#fafafa}
           .sig-cell{width:100px;height:32px;}
           .footer{margin-top:40px;color:#aaa;font-size:11px;text-align:center;border-top:1px solid #eee;padding-top:10px}
@@ -5173,7 +5364,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         </div>
 
         ${m.agendaItems?.length ? `
-        <h2>Agenda</h2>
+        <h2>Agenda (${m.agendaItems.length} items)</h2>
         <ol style="font-size:13px;padding-left:18px;margin:6px 0">
           ${m.agendaItems.map(a=>`<li style="margin:3px 0">${a}</li>`).join('')}
         </ol>` : ''}
@@ -5185,14 +5376,22 @@ document.addEventListener('DOMContentLoaded', ()=>{
           ${attendeesList.map((a,i)=>`<tr><td>${i+1}</td><td>${a.name||''}</td><td>${a.position||''}</td><td>${a.department||''}</td><td class="sig-cell"></td></tr>`).join('')}
         </table>` : ''}
 
-        <h2>Minutes</h2>
-        <div style="font-size:13px;line-height:1.7;margin-top:6px">${m.minutesContent||'<em style="color:#999">No minutes recorded.</em>'}</div>
+        ${m.minutesContent ? `
+        <h2>Minutes / Discussion</h2>
+        <div style="font-size:13px;line-height:1.7;margin-top:6px">${m.minutesContent}</div>` : ''}
 
         ${actions.length ? `
-        <h2>Action Items</h2>
+        <h2>Action Items (${actions.length})</h2>
         <table>
-          <tr><th>#</th><th>Item Details</th><th>Action Required</th><th>Due Date</th><th>Responsible</th><th>Next Step</th></tr>
-          ${actions.map(a=>`<tr><td>${a.itemNo}</td><td>${a.details||''}</td><td>${a.action||''}</td><td>${a.dueDate||''}</td><td>${a.responsible||''}</td><td>${a.nextStep||''}</td></tr>`).join('')}
+          <tr><th>#</th><th>Item Details</th><th>Action Required</th><th>Due Date</th><th>Responsible</th></tr>
+          ${actions.map(a=>`<tr><td>${a.itemNo||''}</td><td>${a.details||''}</td><td>${a.action||''}</td><td>${a.dueDate||''}</td><td>${a.responsible||''}</td></tr>`).join('')}
+        </table>` : ''}
+
+        ${nextSteps.length ? `
+        <h2>Next Steps (${nextSteps.length})</h2>
+        <table>
+          <tr><th>#</th><th>Step Description</th><th>Owner</th><th>Due Date</th><th>Status</th></tr>
+          ${nextSteps.map(s=>`<tr><td>${s.itemNo||''}</td><td>${s.details||''}</td><td>${s.owner||''}</td><td>${s.dueDate||''}</td><td>${s.status||'Pending'}</td></tr>`).join('')}
         </table>` : ''}
 
         <div class="footer">Generated by SDA Portal · ${new Date().toLocaleString()}</div>
@@ -5978,7 +6177,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const uid = currentUid();
       const expenses = state.expenses || [];
 
-      // Tab summaries
       function tabSummary(type) {
         const rows = expenses.filter(e => e.expenseType === type);
         const totalBudget = rows.reduce((s,e) => s + (parseFloat(e.budgetAmount)||0), 0);
@@ -5991,9 +6189,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const rca  = tabSummary('RCA');
       const vale = tabSummary('VALE');
 
-      const activeRows = _expTab === 'RCA' ? rca : vale;
-      const activeSummary = _expTab === 'RCA' ? rca : vale;
-
       const html = `
         <div class="max-w-6xl mx-auto space-y-5 animate-slide-in">
           <!-- Header -->
@@ -6001,14 +6196,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
             <div class="flex items-center justify-between">
               <div>
                 <h2 class="text-xl font-black flex items-center gap-2">💸 Expense Tracking</h2>
-                <p class="text-sm text-muted-foreground mt-0.5">RCA & VALE expense management with transaction tracking</p>
+                <p class="text-sm text-muted-foreground mt-0.5">Click a card below to view and manage RCA or VALE expenses</p>
               </div>
-              <div class="flex gap-2">
-                <button onclick="window.exportExpensesCSV()" class="px-4 py-2.5 border border-border bg-background hover:bg-muted rounded-xl font-semibold text-sm transition-all">📥 Export</button>
-                <button onclick="window.openExpenseModal()" class="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm shadow hover:shadow-md hover:bg-primary/90 transition-all">
-                  ＋ Add Expense
-                </button>
-              </div>
+              <button onclick="window.exportExpensesCSV()" class="px-4 py-2.5 border border-border bg-background hover:bg-muted rounded-xl font-semibold text-sm transition-all">📥 Export All</button>
             </div>
           </div>
 
@@ -6036,87 +6226,90 @@ document.addEventListener('DOMContentLoaded', ()=>{
             </div>
           </div>
 
-          <!-- Tabs -->
-          <div class="flex gap-1 bg-muted/50 border border-border rounded-2xl p-1.5 w-fit">
-            <button onclick="window.switchExpTab('RCA')" class="px-6 py-2 rounded-xl text-sm font-bold transition-all ${_expTab==='RCA'?'bg-blue-500 text-white shadow':'hover:bg-muted text-muted-foreground'}">
-              📋 RCA <span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full ${_expTab==='RCA'?'bg-white/20 text-white':'bg-muted-foreground/20'}">${rca.rows.length}</span>
-            </button>
-            <button onclick="window.switchExpTab('VALE')" class="px-6 py-2 rounded-xl text-sm font-bold transition-all ${_expTab==='VALE'?'bg-purple-500 text-white shadow':'hover:bg-muted text-muted-foreground'}">
-              📋 VALE <span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full ${_expTab==='VALE'?'bg-white/20 text-white':'bg-muted-foreground/20'}">${vale.rows.length}</span>
-            </button>
-          </div>
-
-          <!-- Active Tab Summary Bar -->
-          <div class="bg-card border border-border rounded-2xl p-4 shadow-sm">
-            <div class="flex flex-wrap gap-6 items-center">
-              <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl ${_expTab==='RCA'?'bg-blue-100 text-blue-600':'bg-purple-100 text-purple-600'} flex items-center justify-center font-black text-sm">${_expTab}</div>
-                <div>
-                  <div class="font-bold text-base">${_expTab} Expense Tracker</div>
-                  <div class="text-xs text-muted-foreground">${activeSummary.open} Open · ${activeSummary.closed} Closed</div>
+          <!-- Clickable Expense Type Cards -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <!-- RCA Card -->
+            <div onclick="window.openExpenseTypePopup('RCA')"
+              class="bg-card border-2 border-blue-200 dark:border-blue-800 rounded-2xl p-6 shadow-sm hover:shadow-lg hover:border-blue-400 transition-all cursor-pointer group">
+              <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-3">
+                  <div class="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-900/30 text-blue-600 flex items-center justify-center font-black text-lg">RCA</div>
+                  <div>
+                    <h3 class="font-bold text-base group-hover:text-blue-600 transition-colors">RCA Expenses</h3>
+                    <p class="text-xs text-muted-foreground">${rca.rows.length} transactions · ${rca.open} open · ${rca.closed} closed</p>
+                  </div>
+                </div>
+                <div class="text-blue-400 group-hover:text-blue-600 transition-colors text-lg">→</div>
+              </div>
+              <div class="grid grid-cols-3 gap-3 text-center">
+                <div class="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3">
+                  <div class="text-xs text-blue-600 font-semibold mb-0.5">Budget</div>
+                  <div class="font-black text-sm text-blue-600">₱${rca.totalBudget.toLocaleString('en-US',{maximumFractionDigits:0})}</div>
+                </div>
+                <div class="bg-red-50 dark:bg-red-900/20 rounded-xl p-3">
+                  <div class="text-xs text-red-600 font-semibold mb-0.5">Spent</div>
+                  <div class="font-black text-sm text-red-500">₱${rca.totalSpent.toLocaleString('en-US',{maximumFractionDigits:0})}</div>
+                </div>
+                <div class="bg-${rca.remaining>=0?'green':'red'}-50 dark:bg-${rca.remaining>=0?'green':'red'}-900/20 rounded-xl p-3">
+                  <div class="text-xs text-${rca.remaining>=0?'green':'red'}-600 font-semibold mb-0.5">Remaining</div>
+                  <div class="font-black text-sm text-${rca.remaining>=0?'green-600':'red-500'}">₱${rca.remaining.toLocaleString('en-US',{maximumFractionDigits:0})}</div>
                 </div>
               </div>
-              <div class="flex gap-5 ml-auto text-sm">
-                <div class="text-center">
-                  <div class="font-black text-base">₱${activeSummary.totalBudget.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-                  <div class="text-xs text-muted-foreground">Total Budget</div>
+              ${rca.totalBudget > 0 ? `
+              <div class="mt-4">
+                <div class="h-2 bg-blue-100 dark:bg-blue-900/20 rounded-full overflow-hidden">
+                  <div class="h-full rounded-full transition-all ${rca.totalSpent/rca.totalBudget > 0.9 ? 'bg-red-500' : rca.totalSpent/rca.totalBudget > 0.7 ? 'bg-yellow-500' : 'bg-blue-500'}"
+                    style="width:${Math.min(100,Math.round((rca.totalSpent/rca.totalBudget)*100))}%"></div>
                 </div>
-                <div class="text-center">
-                  <div class="font-black text-base text-red-500">₱${activeSummary.totalSpent.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-                  <div class="text-xs text-muted-foreground">Total Expensed</div>
+                <div class="flex justify-between text-[10px] text-muted-foreground mt-1">
+                  <span>Budget utilization</span><span>${Math.min(100,Math.round((rca.totalSpent/rca.totalBudget)*100))}%</span>
                 </div>
-                <div class="text-center">
-                  <div class="font-black text-base ${activeSummary.remaining>=0?'text-green-600':'text-red-500'}">₱${activeSummary.remaining.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-                  <div class="text-xs text-muted-foreground">Remaining</div>
-                </div>
+              </div>` : ''}
+              <div class="mt-4 pt-3 border-t border-blue-100 dark:border-blue-900/30 text-xs text-blue-600 font-semibold flex items-center gap-1">
+                <i class="fa-solid fa-eye text-xs"></i> Click to view all RCA expenses & add new
               </div>
             </div>
-            <!-- Progress bar -->
-            ${activeSummary.totalBudget > 0 ? `
-            <div class="mt-3">
-              <div class="flex justify-between text-[10px] text-muted-foreground mb-1">
-                <span>Budget utilization</span>
-                <span>${Math.min(100,Math.round((activeSummary.totalSpent/activeSummary.totalBudget)*100))}%</span>
-              </div>
-              <div class="h-2 bg-muted rounded-full overflow-hidden">
-                <div class="h-full rounded-full transition-all ${activeSummary.totalSpent/activeSummary.totalBudget > 0.9 ? 'bg-red-500' : activeSummary.totalSpent/activeSummary.totalBudget > 0.7 ? 'bg-yellow-500' : 'bg-green-500'}"
-                  style="width:${Math.min(100,Math.round((activeSummary.totalSpent/activeSummary.totalBudget)*100))}%"></div>
-              </div>
-            </div>` : ''}
-          </div>
 
-          <!-- Search filter -->
-          <div class="flex gap-3 flex-wrap items-center bg-card border border-border rounded-xl p-3">
-            <input id="exp-search" type="text" placeholder="🔍 Search by particulars or description..." oninput="window.filterExpenses()"
-              class="h-9 px-3 rounded-lg border border-input bg-background text-sm flex-1 min-w-[200px] focus:outline-none focus:ring-1 focus:ring-ring">
-            <select id="exp-status-filter" onchange="window.filterExpenses()" class="h-9 px-3 rounded-lg border border-input bg-background text-sm">
-              <option value="">All Status</option>
-              <option value="Open">🟡 Open</option>
-              <option value="Closed">🟢 Closed</option>
-            </select>
-          </div>
-
-          <!-- Expense Table -->
-          <div class="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
-            <div class="overflow-x-auto">
-              <table class="w-full text-sm text-left">
-                <thead class="text-xs text-muted-foreground uppercase bg-muted/50 border-b border-border">
-                  <tr>
-                    <th class="px-5 py-3">Date</th>
-                    <th class="px-5 py-3">Particulars</th>
-                    <th class="px-5 py-3">Description</th>
-                    <th class="px-5 py-3">Submitted By</th>
-                    <th class="px-5 py-3">Budget (₱)</th>
-                    <th class="px-5 py-3">Expensed (₱)</th>
-                    <th class="px-5 py-3">Remaining (₱)</th>
-                    <th class="px-5 py-3">Status</th>
-                    <th class="px-5 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="exp-table-body" class="divide-y divide-border">
-                  ${renderExpenseRows(activeRows.rows)}
-                </tbody>
-              </table>
+            <!-- VALE Card -->
+            <div onclick="window.openExpenseTypePopup('VALE')"
+              class="bg-card border-2 border-purple-200 dark:border-purple-800 rounded-2xl p-6 shadow-sm hover:shadow-lg hover:border-purple-400 transition-all cursor-pointer group">
+              <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-3">
+                  <div class="w-12 h-12 rounded-xl bg-purple-100 dark:bg-purple-900/30 text-purple-600 flex items-center justify-center font-black text-lg">VALE</div>
+                  <div>
+                    <h3 class="font-bold text-base group-hover:text-purple-600 transition-colors">VALE Expenses</h3>
+                    <p class="text-xs text-muted-foreground">${vale.rows.length} transactions · ${vale.open} open · ${vale.closed} closed</p>
+                  </div>
+                </div>
+                <div class="text-purple-400 group-hover:text-purple-600 transition-colors text-lg">→</div>
+              </div>
+              <div class="grid grid-cols-3 gap-3 text-center">
+                <div class="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-3">
+                  <div class="text-xs text-purple-600 font-semibold mb-0.5">Budget</div>
+                  <div class="font-black text-sm text-purple-600">₱${vale.totalBudget.toLocaleString('en-US',{maximumFractionDigits:0})}</div>
+                </div>
+                <div class="bg-red-50 dark:bg-red-900/20 rounded-xl p-3">
+                  <div class="text-xs text-red-600 font-semibold mb-0.5">Spent</div>
+                  <div class="font-black text-sm text-red-500">₱${vale.totalSpent.toLocaleString('en-US',{maximumFractionDigits:0})}</div>
+                </div>
+                <div class="bg-${vale.remaining>=0?'green':'red'}-50 dark:bg-${vale.remaining>=0?'green':'red'}-900/20 rounded-xl p-3">
+                  <div class="text-xs text-${vale.remaining>=0?'green':'red'}-600 font-semibold mb-0.5">Remaining</div>
+                  <div class="font-black text-sm text-${vale.remaining>=0?'green-600':'red-500'}">₱${vale.remaining.toLocaleString('en-US',{maximumFractionDigits:0})}</div>
+                </div>
+              </div>
+              ${vale.totalBudget > 0 ? `
+              <div class="mt-4">
+                <div class="h-2 bg-purple-100 dark:bg-purple-900/20 rounded-full overflow-hidden">
+                  <div class="h-full rounded-full transition-all ${vale.totalSpent/vale.totalBudget > 0.9 ? 'bg-red-500' : vale.totalSpent/vale.totalBudget > 0.7 ? 'bg-yellow-500' : 'bg-purple-500'}"
+                    style="width:${Math.min(100,Math.round((vale.totalSpent/vale.totalBudget)*100))}%"></div>
+                </div>
+                <div class="flex justify-between text-[10px] text-muted-foreground mt-1">
+                  <span>Budget utilization</span><span>${Math.min(100,Math.round((vale.totalSpent/vale.totalBudget)*100))}%</span>
+                </div>
+              </div>` : ''}
+              <div class="mt-4 pt-3 border-t border-purple-100 dark:border-purple-900/30 text-xs text-purple-600 font-semibold flex items-center gap-1">
+                <i class="fa-solid fa-eye text-xs"></i> Click to view all VALE expenses & add new
+              </div>
             </div>
           </div>
         </div>
@@ -6124,40 +6317,150 @@ document.addEventListener('DOMContentLoaded', ()=>{
       $('content-area').innerHTML = html;
     }
 
-    window.switchExpTab = function(tab) {
-      _expTab = tab;
-      renderExpenses();
-    };
-
-    function renderExpenseRows(expenses) {
+    window.openExpenseTypePopup = function(type) {
       const isAdmin = state.currentUserDoc?.role === 'admin';
       const uid = currentUid();
-      if (!expenses.length) return `<tr><td colspan="9" class="px-6 py-10 text-center text-muted-foreground">No expenses found</td></tr>`;
+      const typeColor = type === 'RCA' ? 'blue' : 'purple';
+      const expenses = (state.expenses||[]).filter(e => e.expenseType === type);
+      const totalBudget = expenses.reduce((s,e)=>s+(parseFloat(e.budgetAmount)||0),0);
+      const totalSpent  = expenses.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+      const remaining   = totalBudget - totalSpent;
+
+      function buildRows(rows) {
+        const statusColors = {
+          Open:   'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300',
+          Closed: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300',
+        };
+        if (!rows.length) return `<tr><td colspan="9" class="px-5 py-8 text-center text-muted-foreground">No ${type} expenses found. Click "＋ Add" to add one.</td></tr>`;
+        return rows.map(e => {
+          const budget = parseFloat(e.budgetAmount||0);
+          const expensed = parseFloat(e.amount||0);
+          const rem = budget - expensed;
+          return `<tr class="hover:bg-muted/30 transition-colors">
+            <td class="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">${e.date||formatDate(e.createdAt)}</td>
+            <td class="px-4 py-3 font-semibold text-sm">${e.particulars||'—'}</td>
+            <td class="px-4 py-3 text-xs text-muted-foreground max-w-[120px] truncate">${e.description||'—'}</td>
+            <td class="px-4 py-3 font-bold text-blue-600 text-xs">₱${budget.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+            <td class="px-4 py-3 font-bold text-red-500 text-xs">₱${expensed.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+            <td class="px-4 py-3 font-bold text-xs ${rem>=0?'text-green-600':'text-red-500'}">₱${rem.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+            <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-bold border ${statusColors[e.status]||statusColors['Open']}">${e.status==='Closed'?'🟢':'🟡'} ${e.status||'Open'}</span></td>
+            <td class="px-4 py-3 text-xs text-muted-foreground">${getUserName(e.submittedBy)}</td>
+            <td class="px-4 py-3 text-right">
+              <div class="flex items-center justify-end gap-1">
+                <button onclick="window.viewExpense('${e.id}')" class="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary text-xs">👁️</button>
+                ${isAdmin || e.submittedBy === uid ? `
+                  <button onclick="window.openExpenseModal('${e.id}')" class="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary text-xs">✏️</button>
+                  <button onclick="window.deleteExpense('${e.id}')" class="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 text-xs">🗑️</button>
+                ` : ''}
+              </div>
+            </td>
+          </tr>`;
+        }).join('');
+      }
+
+      showModal(`
+        <div class="p-6 border-b border-border flex justify-between items-center bg-${typeColor}-50 dark:bg-${typeColor}-900/20 rounded-t-xl">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-${typeColor}-100 dark:bg-${typeColor}-900/30 text-${typeColor}-600 flex items-center justify-center font-black text-sm">${type}</div>
+            <div>
+              <h3 class="font-bold text-lg">${type} Expense Details</h3>
+              <p class="text-xs text-muted-foreground">${expenses.length} transactions</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="window._openAddExpFromPopup('${type}')" class="h-8 px-3 rounded-lg bg-${typeColor}-500 text-white text-xs font-bold hover:bg-${typeColor}-600 transition-colors">＋ Add Expense</button>
+            <button onclick="window.closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
+          </div>
+        </div>
+        <div class="p-5 space-y-4 overflow-y-auto max-h-[75vh]">
+          <!-- Summary KPIs -->
+          <div class="grid grid-cols-3 gap-3">
+            <div class="bg-${typeColor}-50 dark:bg-${typeColor}-900/20 rounded-xl p-4 border border-${typeColor}-200 dark:border-${typeColor}-800 text-center">
+              <div class="text-xs text-${typeColor}-600 font-semibold mb-1">Total Budget</div>
+              <div class="font-black text-xl text-${typeColor}-600">₱${totalBudget.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+            </div>
+            <div class="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 border border-red-200 dark:border-red-800 text-center">
+              <div class="text-xs text-red-600 font-semibold mb-1">Total Spent</div>
+              <div class="font-black text-xl text-red-500">₱${totalSpent.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+            </div>
+            <div class="bg-${remaining>=0?'green':'red'}-50 dark:bg-${remaining>=0?'green':'red'}-900/20 rounded-xl p-4 border border-${remaining>=0?'green':'red'}-200 dark:border-${remaining>=0?'green':'red'}-800 text-center">
+              <div class="text-xs text-${remaining>=0?'green':'red'}-600 font-semibold mb-1">Remaining</div>
+              <div class="font-black text-xl text-${remaining>=0?'green-600':'red-500'}">₱${remaining.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+            </div>
+          </div>
+          <!-- Search/Filter -->
+          <div class="flex gap-2">
+            <input id="popup-exp-search" type="text" placeholder="🔍 Search..." oninput="window._filterPopupExp('${type}')"
+              class="h-9 px-3 rounded-lg border border-input bg-background text-sm flex-1 focus:outline-none focus:ring-1 focus:ring-ring">
+            <select id="popup-exp-status" onchange="window._filterPopupExp('${type}')" class="h-9 px-3 rounded-lg border border-input bg-background text-sm">
+              <option value="">All Status</option>
+              <option>Open</option>
+              <option>Closed</option>
+            </select>
+          </div>
+          <!-- Table -->
+          <div class="border border-border rounded-xl overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left">
+                <thead class="text-xs text-muted-foreground uppercase bg-muted/50 border-b border-border">
+                  <tr>
+                    <th class="px-4 py-3">Date</th>
+                    <th class="px-4 py-3">Particulars</th>
+                    <th class="px-4 py-3">Description</th>
+                    <th class="px-4 py-3">Budget (₱)</th>
+                    <th class="px-4 py-3">Spent (₱)</th>
+                    <th class="px-4 py-3">Remaining</th>
+                    <th class="px-4 py-3">Status</th>
+                    <th class="px-4 py-3">By</th>
+                    <th class="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="popup-exp-tbody" class="divide-y divide-border">${buildRows(expenses)}</tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `);
+      // Store for filter
+      window._popupExpType = type;
+    };
+
+    window._openAddExpFromPopup = function(type) {
+      _expTab = type;
+      closeModal();
+      setTimeout(() => window.openExpenseModal(), 100);
+    };
+
+    window._filterPopupExp = function(type) {
+      const search = ($('popup-exp-search')?.value||'').toLowerCase();
+      const status = $('popup-exp-status')?.value||'';
+      const isAdmin = state.currentUserDoc?.role === 'admin';
+      const uid = currentUid();
       const statusColors = {
         Open:   'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300',
         Closed: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300',
       };
-      return expenses.map(e => {
-        const budget    = parseFloat(e.budgetAmount||0);
-        const expensed  = parseFloat(e.amount||0);
-        const remaining = budget - expensed;
-        return `
-        <tr class="hover:bg-muted/30 transition-colors">
-          <td class="px-5 py-3 text-xs text-muted-foreground whitespace-nowrap">${e.date || formatDate(e.createdAt)}</td>
-          <td class="px-5 py-3 font-semibold text-sm">${e.particulars||'—'}</td>
-          <td class="px-5 py-3 text-xs text-muted-foreground max-w-[150px] truncate" title="${e.description||''}">${e.description || '—'}</td>
-          <td class="px-5 py-3">
-            <div class="flex items-center gap-1.5">${getUserAvatar(e.submittedBy,'w-6 h-6 text-[10px]')}<span class="text-xs">${getUserName(e.submittedBy)}</span></div>
-          </td>
-          <td class="px-5 py-3 font-bold text-blue-600">₱${budget.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
-          <td class="px-5 py-3 font-bold text-red-500">₱${expensed.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
-          <td class="px-5 py-3 font-bold ${remaining>=0?'text-green-600':'text-red-500'}">₱${remaining.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
-          <td class="px-5 py-3">
-            <span class="px-2.5 py-0.5 rounded-full text-xs font-bold border ${statusColors[e.status]||statusColors['Open']}">
-              ${e.status==='Closed'?'🟢':'🟡'} ${e.status||'Open'}
-            </span>
-          </td>
-          <td class="px-5 py-3 text-right">
+      const filtered = (state.expenses||[]).filter(e => e.expenseType === type).filter(e => {
+        const hay = `${e.particulars||''} ${e.description||''}`.toLowerCase();
+        return hay.includes(search) && (!status||e.status===status);
+      });
+      const tbody = $('popup-exp-tbody');
+      if (!tbody) return;
+      if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="9" class="px-5 py-8 text-center text-muted-foreground">No matching expenses</td></tr>`; return; }
+      tbody.innerHTML = filtered.map(e => {
+        const budget = parseFloat(e.budgetAmount||0);
+        const expensed = parseFloat(e.amount||0);
+        const rem = budget - expensed;
+        return `<tr class="hover:bg-muted/30 transition-colors">
+          <td class="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">${e.date||formatDate(e.createdAt)}</td>
+          <td class="px-4 py-3 font-semibold text-sm">${e.particulars||'—'}</td>
+          <td class="px-4 py-3 text-xs text-muted-foreground max-w-[120px] truncate">${e.description||'—'}</td>
+          <td class="px-4 py-3 font-bold text-blue-600 text-xs">₱${budget.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+          <td class="px-4 py-3 font-bold text-red-500 text-xs">₱${expensed.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+          <td class="px-4 py-3 font-bold text-xs ${rem>=0?'text-green-600':'text-red-500'}">₱${rem.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+          <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-bold border ${statusColors[e.status]||statusColors['Open']}">${e.status==='Closed'?'🟢':'🟡'} ${e.status||'Open'}</span></td>
+          <td class="px-4 py-3 text-xs text-muted-foreground">${getUserName(e.submittedBy)}</td>
+          <td class="px-4 py-3 text-right">
             <div class="flex items-center justify-end gap-1">
               <button onclick="window.viewExpense('${e.id}')" class="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary text-xs">👁️</button>
               ${isAdmin || e.submittedBy === uid ? `
@@ -6168,18 +6471,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
           </td>
         </tr>`;
       }).join('');
-    }
-
-    window.filterExpenses = function() {
-      const search = ($('exp-search')?.value||'').toLowerCase();
-      const status = $('exp-status-filter')?.value||'';
-      const typeExpenses = (state.expenses||[]).filter(e => e.expenseType === _expTab);
-      const filtered = typeExpenses.filter(e => {
-        const hay = `${e.particulars||''} ${e.description||''}`.toLowerCase();
-        return hay.includes(search) && (!status||e.status===status);
-      });
-      const tbody = $('exp-table-body');
-      if (tbody) tbody.innerHTML = renderExpenseRows(filtered);
     };
 
     window.openExpenseModal = function(expId=null) {
