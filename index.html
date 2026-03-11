@@ -6172,144 +6172,165 @@ document.addEventListener('DOMContentLoaded', ()=>{
      ***********************/
     let _expTab = 'RCA';
 
+    /* ─────────────────────────────────────────────
+       EXPENSE MODULE — RCA & VALE Card System
+    ───────────────────────────────────────────── */
+
+    // Helper: compute live totals for a record
+    function expRecordTotals(rec) {
+      const txs = rec.transactions || [];
+      const added   = txs.filter(t=>t.txType==='+').reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+      const spent   = txs.filter(t=>t.txType==='-').reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+      const totalFunds = (parseFloat(rec.totalAmount)||0) + added;
+      const remaining  = totalFunds - spent;
+      return { totalFunds, spent, remaining, added };
+    }
+
     function renderExpenses() {
       const isAdmin = state.currentUserDoc?.role === 'admin';
       const uid = currentUid();
       const expenses = state.expenses || [];
 
-      function tabSummary(type) {
-        const rows = expenses.filter(e => e.expenseType === type);
-        const totalBudget = rows.reduce((s,e) => s + (parseFloat(e.budgetAmount)||0), 0);
-        const totalSpent  = rows.reduce((s,e) => s + (parseFloat(e.amount)||0), 0);
-        const remaining   = totalBudget - totalSpent;
-        const open   = rows.filter(e => e.status === 'Open').length;
-        const closed = rows.filter(e => e.status === 'Closed').length;
-        return { rows, totalBudget, totalSpent, remaining, open, closed };
+      // Records = all records in expenses (each is its own card: RCA or VALE)
+      const rcaRecs  = expenses.filter(e => e.recordType === 'RCA');
+      const valeRecs = expenses.filter(e => e.recordType === 'VALE');
+
+      // Overall KPIs
+      function kpi(recs) {
+        let totalFunds=0, spent=0, remaining=0;
+        recs.forEach(r => { const t = expRecordTotals(r); totalFunds+=t.totalFunds; spent+=t.spent; remaining+=t.remaining; });
+        return { totalFunds, spent, remaining, open: recs.filter(r=>r.status!=='Closed').length, closed: recs.filter(r=>r.status==='Closed').length };
       }
-      const rca  = tabSummary('RCA');
-      const vale = tabSummary('VALE');
+      const rcaKpi  = kpi(rcaRecs);
+      const valeKpi = kpi(valeRecs);
+
+      function renderRecordCards(recs, type) {
+        const color = type === 'RCA' ? {bg:'bg-blue-500',light:'bg-blue-50 dark:bg-blue-900/20',border:'border-blue-200 dark:border-blue-800',text:'text-blue-600',hover:'hover:border-blue-400'} : {bg:'bg-purple-500',light:'bg-purple-50 dark:bg-purple-900/20',border:'border-purple-200 dark:border-purple-800',text:'text-purple-600',hover:'hover:border-purple-400'};
+        if (!recs.length) return `<div class="col-span-2 py-8 text-center text-muted-foreground text-sm border border-dashed border-border rounded-2xl">No ${type} records yet. Click "＋ New ${type}" to create one.</div>`;
+        const openRecs   = recs.filter(r => r.status !== 'Closed');
+        const closedRecs = recs.filter(r => r.status === 'Closed');
+        const renderGroup = (group, label) => {
+          if (!group.length) return '';
+          return `
+            <div class="col-span-2">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-xs font-bold uppercase tracking-wide text-muted-foreground">${label}</span>
+                <div class="flex-1 h-px bg-border"></div>
+                <span class="text-xs font-bold text-muted-foreground">${group.length}</span>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                ${group.map(r => {
+                  const tot = expRecordTotals(r);
+                  const pct = tot.totalFunds > 0 ? Math.min(100, Math.round((tot.spent/tot.totalFunds)*100)) : 0;
+                  const barColor = pct > 90 ? 'bg-red-500' : pct > 70 ? 'bg-yellow-500' : color.bg;
+                  const isClosed = r.status === 'Closed';
+                  return `
+                    <div onclick="window.openRecordDetail('${r.id}')" class="bg-card border-2 ${isClosed?'border-green-200 dark:border-green-800 opacity-75':'${color.border} ${color.hover}'} rounded-2xl p-4 cursor-pointer hover:shadow-md transition-all group">
+                      <div class="flex items-start justify-between mb-2">
+                        <div class="flex items-center gap-2">
+                          <span class="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full text-white ${isClosed?'bg-green-500':color.bg}">${type}</span>
+                          <span class="text-[10px] font-bold ${isClosed?'text-green-600':'text-orange-500'}">${isClosed?'● Closed':'● Open'}</span>
+                        </div>
+                        <span class="text-[10px] text-muted-foreground">${r.returnDate ? '↩ '+r.returnDate : ''}</span>
+                      </div>
+                      <h4 class="font-black text-sm mb-0.5 group-hover:${color.text} transition-colors line-clamp-1">${r.title||'Untitled'}</h4>
+                      ${r.description ? `<p class="text-[11px] text-muted-foreground line-clamp-1 mb-2">${r.description}</p>` : '<div class="mb-2"></div>'}
+                      <div class="grid grid-cols-3 gap-1.5 text-center mb-2">
+                        <div class="${color.light} rounded-lg p-1.5">
+                          <div class="text-[9px] ${color.text} font-semibold">Total</div>
+                          <div class="font-black text-xs ${color.text}">₱${tot.totalFunds.toLocaleString('en-US',{maximumFractionDigits:0})}</div>
+                        </div>
+                        <div class="bg-red-50 dark:bg-red-900/20 rounded-lg p-1.5">
+                          <div class="text-[9px] text-red-600 font-semibold">Spent</div>
+                          <div class="font-black text-xs text-red-500">₱${tot.spent.toLocaleString('en-US',{maximumFractionDigits:0})}</div>
+                        </div>
+                        <div class="${tot.remaining>=0?'bg-green-50 dark:bg-green-900/20':'bg-red-50 dark:bg-red-900/20'} rounded-lg p-1.5">
+                          <div class="text-[9px] ${tot.remaining>=0?'text-green-600':'text-red-600'} font-semibold">Left</div>
+                          <div class="font-black text-xs ${tot.remaining>=0?'text-green-600':'text-red-500'}">₱${tot.remaining.toLocaleString('en-US',{maximumFractionDigits:0})}</div>
+                        </div>
+                      </div>
+                      <div class="h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div class="h-full rounded-full ${barColor} transition-all" style="width:${pct}%"></div>
+                      </div>
+                      <div class="flex justify-between text-[9px] text-muted-foreground mt-0.5">
+                        <span>${(r.transactions||[]).length} transactions</span><span>${pct}% used</span>
+                      </div>
+                    </div>`;
+                }).join('')}
+              </div>
+            </div>`;
+        };
+        return `${renderGroup(openRecs,'Open')}${renderGroup(closedRecs,'Closed')}`;
+      }
 
       const html = `
-        <div class="max-w-6xl mx-auto space-y-5 animate-slide-in">
+        <div class="max-w-6xl mx-auto space-y-6 animate-slide-in">
           <!-- Header -->
           <div class="bg-gradient-to-r from-emerald-500/15 via-primary/10 to-transparent border border-border rounded-2xl p-6">
-            <div class="flex items-center justify-between">
+            <div class="flex items-center justify-between flex-wrap gap-3">
               <div>
-                <h2 class="text-xl font-black flex items-center gap-2">💸 Expense Tracking</h2>
-                <p class="text-sm text-muted-foreground mt-0.5">Click a card below to view and manage RCA or VALE expenses</p>
+                <h2 class="text-xl font-black flex items-center gap-2">💸 Expense Monitoring</h2>
+                <p class="text-sm text-muted-foreground mt-0.5">Manage RCA and VALE expense records with full transaction history</p>
               </div>
-              <button onclick="window.exportExpensesCSV()" class="px-4 py-2.5 border border-border bg-background hover:bg-muted rounded-xl font-semibold text-sm transition-all">📥 Export All</button>
+              <button onclick="window.exportExpensesCSV()" class="px-4 py-2 border border-border bg-background hover:bg-muted rounded-xl font-semibold text-sm transition-all">📥 Export CSV</button>
             </div>
           </div>
 
-          <!-- Overview KPI -->
+          <!-- Overview KPIs -->
           <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div class="bg-card border border-border rounded-2xl p-4 shadow-sm text-center">
-              <div class="text-xs text-muted-foreground font-semibold uppercase tracking-wide mb-1">RCA Budget</div>
-              <div class="text-xl font-black text-blue-500">₱${rca.totalBudget.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-              <div class="text-xs text-muted-foreground mt-1">${rca.rows.length} transactions</div>
+            <div class="bg-card border border-border rounded-2xl p-4 text-center shadow-sm">
+              <div class="text-xs text-muted-foreground font-semibold uppercase mb-1">RCA Total Funds</div>
+              <div class="text-xl font-black text-blue-500">₱${rcaKpi.totalFunds.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+              <div class="text-[10px] text-muted-foreground mt-1">${rcaRecs.length} records · ${rcaKpi.open} open · ${rcaKpi.closed} closed</div>
             </div>
-            <div class="bg-card border border-border rounded-2xl p-4 shadow-sm text-center">
-              <div class="text-xs text-muted-foreground font-semibold uppercase tracking-wide mb-1">RCA Spent</div>
-              <div class="text-xl font-black text-red-500">₱${rca.totalSpent.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-              <div class="text-xs mt-1 font-semibold ${rca.remaining>=0?'text-green-600':'text-red-500'}">Remaining: ₱${rca.remaining.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+            <div class="bg-card border border-border rounded-2xl p-4 text-center shadow-sm">
+              <div class="text-xs text-muted-foreground font-semibold uppercase mb-1">RCA Spent</div>
+              <div class="text-xl font-black text-red-500">₱${rcaKpi.spent.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+              <div class="text-[10px] font-semibold mt-1 ${rcaKpi.remaining>=0?'text-green-600':'text-red-500'}">Remaining ₱${rcaKpi.remaining.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
             </div>
-            <div class="bg-card border border-border rounded-2xl p-4 shadow-sm text-center">
-              <div class="text-xs text-muted-foreground font-semibold uppercase tracking-wide mb-1">VALE Budget</div>
-              <div class="text-xl font-black text-purple-500">₱${vale.totalBudget.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-              <div class="text-xs text-muted-foreground mt-1">${vale.rows.length} transactions</div>
+            <div class="bg-card border border-border rounded-2xl p-4 text-center shadow-sm">
+              <div class="text-xs text-muted-foreground font-semibold uppercase mb-1">VALE Total Funds</div>
+              <div class="text-xl font-black text-purple-500">₱${valeKpi.totalFunds.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+              <div class="text-[10px] text-muted-foreground mt-1">${valeRecs.length} records · ${valeKpi.open} open · ${valeKpi.closed} closed</div>
             </div>
-            <div class="bg-card border border-border rounded-2xl p-4 shadow-sm text-center">
-              <div class="text-xs text-muted-foreground font-semibold uppercase tracking-wide mb-1">VALE Spent</div>
-              <div class="text-xl font-black text-orange-500">₱${vale.totalSpent.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-              <div class="text-xs mt-1 font-semibold ${vale.remaining>=0?'text-green-600':'text-red-500'}">Remaining: ₱${vale.remaining.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+            <div class="bg-card border border-border rounded-2xl p-4 text-center shadow-sm">
+              <div class="text-xs text-muted-foreground font-semibold uppercase mb-1">VALE Spent</div>
+              <div class="text-xl font-black text-orange-500">₱${valeKpi.spent.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+              <div class="text-[10px] font-semibold mt-1 ${valeKpi.remaining>=0?'text-green-600':'text-red-500'}">Remaining ₱${valeKpi.remaining.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
             </div>
           </div>
 
-          <!-- Clickable Expense Type Cards -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <!-- RCA Card -->
-            <div onclick="window.openExpenseTypePopup('RCA')"
-              class="bg-card border-2 border-blue-200 dark:border-blue-800 rounded-2xl p-6 shadow-sm hover:shadow-lg hover:border-blue-400 transition-all cursor-pointer group">
-              <div class="flex items-center justify-between mb-4">
-                <div class="flex items-center gap-3">
-                  <div class="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-900/30 text-blue-600 flex items-center justify-center font-black text-lg">RCA</div>
-                  <div>
-                    <h3 class="font-bold text-base group-hover:text-blue-600 transition-colors">RCA Expenses</h3>
-                    <p class="text-xs text-muted-foreground">${rca.rows.length} transactions · ${rca.open} open · ${rca.closed} closed</p>
-                  </div>
-                </div>
-                <div class="text-blue-400 group-hover:text-blue-600 transition-colors text-lg">→</div>
-              </div>
-              <div class="grid grid-cols-3 gap-3 text-center">
-                <div class="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3">
-                  <div class="text-xs text-blue-600 font-semibold mb-0.5">Budget</div>
-                  <div class="font-black text-sm text-blue-600">₱${rca.totalBudget.toLocaleString('en-US',{maximumFractionDigits:0})}</div>
-                </div>
-                <div class="bg-red-50 dark:bg-red-900/20 rounded-xl p-3">
-                  <div class="text-xs text-red-600 font-semibold mb-0.5">Spent</div>
-                  <div class="font-black text-sm text-red-500">₱${rca.totalSpent.toLocaleString('en-US',{maximumFractionDigits:0})}</div>
-                </div>
-                <div class="bg-${rca.remaining>=0?'green':'red'}-50 dark:bg-${rca.remaining>=0?'green':'red'}-900/20 rounded-xl p-3">
-                  <div class="text-xs text-${rca.remaining>=0?'green':'red'}-600 font-semibold mb-0.5">Remaining</div>
-                  <div class="font-black text-sm text-${rca.remaining>=0?'green-600':'red-500'}">₱${rca.remaining.toLocaleString('en-US',{maximumFractionDigits:0})}</div>
+          <!-- RCA Section -->
+          <div class="bg-card border border-border rounded-2xl p-5 shadow-sm">
+            <div class="flex items-center justify-between mb-4">
+              <div class="flex items-center gap-2">
+                <div class="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 flex items-center justify-center font-black text-xs">RCA</div>
+                <div>
+                  <h3 class="font-bold">RCA Records</h3>
+                  <p class="text-[11px] text-muted-foreground">Cash advance & expense liability tracking</p>
                 </div>
               </div>
-              ${rca.totalBudget > 0 ? `
-              <div class="mt-4">
-                <div class="h-2 bg-blue-100 dark:bg-blue-900/20 rounded-full overflow-hidden">
-                  <div class="h-full rounded-full transition-all ${rca.totalSpent/rca.totalBudget > 0.9 ? 'bg-red-500' : rca.totalSpent/rca.totalBudget > 0.7 ? 'bg-yellow-500' : 'bg-blue-500'}"
-                    style="width:${Math.min(100,Math.round((rca.totalSpent/rca.totalBudget)*100))}%"></div>
-                </div>
-                <div class="flex justify-between text-[10px] text-muted-foreground mt-1">
-                  <span>Budget utilization</span><span>${Math.min(100,Math.round((rca.totalSpent/rca.totalBudget)*100))}%</span>
-                </div>
-              </div>` : ''}
-              <div class="mt-4 pt-3 border-t border-blue-100 dark:border-blue-900/30 text-xs text-blue-600 font-semibold flex items-center gap-1">
-                <i class="fa-solid fa-eye text-xs"></i> Click to view all RCA expenses & add new
-              </div>
+              <button onclick="window.openCreateRecordModal('RCA')" class="h-9 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-bold transition-colors shadow-sm">＋ New RCA</button>
             </div>
+            <div class="grid grid-cols-2 gap-3">
+              ${renderRecordCards(rcaRecs, 'RCA')}
+            </div>
+          </div>
 
-            <!-- VALE Card -->
-            <div onclick="window.openExpenseTypePopup('VALE')"
-              class="bg-card border-2 border-purple-200 dark:border-purple-800 rounded-2xl p-6 shadow-sm hover:shadow-lg hover:border-purple-400 transition-all cursor-pointer group">
-              <div class="flex items-center justify-between mb-4">
-                <div class="flex items-center gap-3">
-                  <div class="w-12 h-12 rounded-xl bg-purple-100 dark:bg-purple-900/30 text-purple-600 flex items-center justify-center font-black text-lg">VALE</div>
-                  <div>
-                    <h3 class="font-bold text-base group-hover:text-purple-600 transition-colors">VALE Expenses</h3>
-                    <p class="text-xs text-muted-foreground">${vale.rows.length} transactions · ${vale.open} open · ${vale.closed} closed</p>
-                  </div>
-                </div>
-                <div class="text-purple-400 group-hover:text-purple-600 transition-colors text-lg">→</div>
-              </div>
-              <div class="grid grid-cols-3 gap-3 text-center">
-                <div class="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-3">
-                  <div class="text-xs text-purple-600 font-semibold mb-0.5">Budget</div>
-                  <div class="font-black text-sm text-purple-600">₱${vale.totalBudget.toLocaleString('en-US',{maximumFractionDigits:0})}</div>
-                </div>
-                <div class="bg-red-50 dark:bg-red-900/20 rounded-xl p-3">
-                  <div class="text-xs text-red-600 font-semibold mb-0.5">Spent</div>
-                  <div class="font-black text-sm text-red-500">₱${vale.totalSpent.toLocaleString('en-US',{maximumFractionDigits:0})}</div>
-                </div>
-                <div class="bg-${vale.remaining>=0?'green':'red'}-50 dark:bg-${vale.remaining>=0?'green':'red'}-900/20 rounded-xl p-3">
-                  <div class="text-xs text-${vale.remaining>=0?'green':'red'}-600 font-semibold mb-0.5">Remaining</div>
-                  <div class="font-black text-sm text-${vale.remaining>=0?'green-600':'red-500'}">₱${vale.remaining.toLocaleString('en-US',{maximumFractionDigits:0})}</div>
+          <!-- VALE Section -->
+          <div class="bg-card border border-border rounded-2xl p-5 shadow-sm">
+            <div class="flex items-center justify-between mb-4">
+              <div class="flex items-center gap-2">
+                <div class="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 text-purple-600 flex items-center justify-center font-black text-xs">VALE</div>
+                <div>
+                  <h3 class="font-bold">VALE Records</h3>
+                  <p class="text-[11px] text-muted-foreground">Value allocation & expense tracking</p>
                 </div>
               </div>
-              ${vale.totalBudget > 0 ? `
-              <div class="mt-4">
-                <div class="h-2 bg-purple-100 dark:bg-purple-900/20 rounded-full overflow-hidden">
-                  <div class="h-full rounded-full transition-all ${vale.totalSpent/vale.totalBudget > 0.9 ? 'bg-red-500' : vale.totalSpent/vale.totalBudget > 0.7 ? 'bg-yellow-500' : 'bg-purple-500'}"
-                    style="width:${Math.min(100,Math.round((vale.totalSpent/vale.totalBudget)*100))}%"></div>
-                </div>
-                <div class="flex justify-between text-[10px] text-muted-foreground mt-1">
-                  <span>Budget utilization</span><span>${Math.min(100,Math.round((vale.totalSpent/vale.totalBudget)*100))}%</span>
-                </div>
-              </div>` : ''}
-              <div class="mt-4 pt-3 border-t border-purple-100 dark:border-purple-900/30 text-xs text-purple-600 font-semibold flex items-center gap-1">
-                <i class="fa-solid fa-eye text-xs"></i> Click to view all VALE expenses & add new
-              </div>
+              <button onclick="window.openCreateRecordModal('VALE')" class="h-9 px-4 bg-purple-500 hover:bg-purple-600 text-white rounded-xl text-sm font-bold transition-colors shadow-sm">＋ New VALE</button>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              ${renderRecordCards(valeRecs, 'VALE')}
             </div>
           </div>
         </div>
@@ -6317,359 +6338,280 @@ document.addEventListener('DOMContentLoaded', ()=>{
       $('content-area').innerHTML = html;
     }
 
-    window.openExpenseTypePopup = function(type) {
-      const isAdmin = state.currentUserDoc?.role === 'admin';
-      const uid = currentUid();
-      const typeColor = type === 'RCA' ? 'blue' : 'purple';
-      const expenses = (state.expenses||[]).filter(e => e.expenseType === type);
-      const totalBudget = expenses.reduce((s,e)=>s+(parseFloat(e.budgetAmount)||0),0);
-      const totalSpent  = expenses.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
-      const remaining   = totalBudget - totalSpent;
-
-      function buildRows(rows) {
-        const statusColors = {
-          Open:   'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300',
-          Closed: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300',
-        };
-        if (!rows.length) return `<tr><td colspan="9" class="px-5 py-8 text-center text-muted-foreground">No ${type} expenses found. Click "＋ Add" to add one.</td></tr>`;
-        return rows.map(e => {
-          const budget = parseFloat(e.budgetAmount||0);
-          const expensed = parseFloat(e.amount||0);
-          const rem = budget - expensed;
-          return `<tr class="hover:bg-muted/30 transition-colors">
-            <td class="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">${e.date||formatDate(e.createdAt)}</td>
-            <td class="px-4 py-3 font-semibold text-sm">${e.particulars||'—'}</td>
-            <td class="px-4 py-3 text-xs text-muted-foreground max-w-[120px] truncate">${e.description||'—'}</td>
-            <td class="px-4 py-3 font-bold text-blue-600 text-xs">₱${budget.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
-            <td class="px-4 py-3 font-bold text-red-500 text-xs">₱${expensed.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
-            <td class="px-4 py-3 font-bold text-xs ${rem>=0?'text-green-600':'text-red-500'}">₱${rem.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
-            <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-bold border ${statusColors[e.status]||statusColors['Open']}">${e.status==='Closed'?'🟢':'🟡'} ${e.status||'Open'}</span></td>
-            <td class="px-4 py-3 text-xs text-muted-foreground">${getUserName(e.submittedBy)}</td>
-            <td class="px-4 py-3 text-right">
-              <div class="flex items-center justify-end gap-1">
-                <button onclick="window.viewExpense('${e.id}')" class="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary text-xs">👁️</button>
-                ${isAdmin || e.submittedBy === uid ? `
-                  <button onclick="window.openExpenseModal('${e.id}')" class="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary text-xs">✏️</button>
-                  <button onclick="window.deleteExpense('${e.id}')" class="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 text-xs">🗑️</button>
-                ` : ''}
-              </div>
-            </td>
-          </tr>`;
-        }).join('');
-      }
-
+    window.openCreateRecordModal = function(type, editId=null) {
+      const isEdit = !!editId;
+      const r = isEdit ? (state.expenses||[]).find(x=>x.id===editId) : null;
+      const color = type==='RCA' ? 'blue' : 'purple';
       showModal(`
-        <div class="p-6 border-b border-border flex justify-between items-center bg-${typeColor}-50 dark:bg-${typeColor}-900/20 rounded-t-xl">
+        <div class="p-6 border-b border-border flex justify-between items-center bg-${color}-50 dark:bg-${color}-900/20 rounded-t-xl">
           <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-${typeColor}-100 dark:bg-${typeColor}-900/30 text-${typeColor}-600 flex items-center justify-center font-black text-sm">${type}</div>
+            <div class="w-9 h-9 rounded-xl bg-${color}-100 text-${color}-600 flex items-center justify-center font-black text-xs">${type}</div>
+            <h3 class="font-bold text-lg">${isEdit?'✏️ Edit':'＋ New'} ${type} Record</h3>
+          </div>
+          <button onclick="closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <div class="p-6 space-y-4">
+          <div>
+            <label class="block text-sm font-semibold mb-1">${type} Title <span class="text-destructive">*</span></label>
+            <input id="rec-title" value="${r?.title||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="e.g. ${type==='RCA'?'SHC 2026 Field Trip':'VALE Q2 2026'}">
+          </div>
+          <div>
+            <label class="block text-sm font-semibold mb-1">Description</label>
+            <textarea id="rec-desc" rows="2" class="w-full px-3 py-2 rounded-xl border border-input bg-background text-sm resize-none" placeholder="Purpose or details of this ${type}...">${r?.description||''}</textarea>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
             <div>
-              <h3 class="font-bold text-lg">${type} Expense Details</h3>
-              <p class="text-xs text-muted-foreground">${expenses.length} transactions</p>
+              <label class="block text-sm font-semibold mb-1">${type} Amount (₱) <span class="text-destructive">*</span></label>
+              <input id="rec-amount" type="number" step="0.01" min="0" value="${r?.totalAmount||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="0.00">
+              <p class="text-xs text-muted-foreground mt-1">Initial cash advance or allocated amount</p>
+            </div>
+            <div>
+              <label class="block text-sm font-semibold mb-1">Return / Due Date</label>
+              <input id="rec-return" type="date" value="${r?.returnDate||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
             </div>
           </div>
-          <div class="flex items-center gap-2">
-            <button onclick="window._openAddExpFromPopup('${type}')" class="h-8 px-3 rounded-lg bg-${typeColor}-500 text-white text-xs font-bold hover:bg-${typeColor}-600 transition-colors">＋ Add Expense</button>
-            <button onclick="window.closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
+          ${isEdit ? `
+          <div>
+            <label class="block text-sm font-semibold mb-1">Status</label>
+            <div class="flex gap-2">
+              <button onclick="document.getElementById('rec-status').value='Open'; this.className='flex-1 py-2 rounded-xl text-sm font-bold border transition-all bg-orange-500 text-white border-orange-500'; this.nextElementSibling.className='flex-1 py-2 rounded-xl text-sm font-bold border transition-all border-border hover:bg-muted';" class="flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${r?.status!=='Closed'?'bg-orange-500 text-white border-orange-500':'border-border hover:bg-muted'}">🟡 Open</button>
+              <button onclick="document.getElementById('rec-status').value='Closed'; this.className='flex-1 py-2 rounded-xl text-sm font-bold border transition-all bg-green-500 text-white border-green-500'; this.previousElementSibling.className='flex-1 py-2 rounded-xl text-sm font-bold border transition-all border-border hover:bg-muted';" class="flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${r?.status==='Closed'?'bg-green-500 text-white border-green-500':'border-border hover:bg-muted'}">🟢 Closed</button>
+            </div>
+            <input type="hidden" id="rec-status" value="${r?.status||'Open'}">
+          </div>` : '<input type="hidden" id="rec-status" value="Open">'}
+        </div>
+        <div class="p-5 border-t border-border bg-muted/30 flex justify-end gap-2">
+          <button onclick="closeModal()" class="px-4 py-2 rounded-xl border border-border text-sm">Cancel</button>
+          <button onclick="window.saveExpenseRecord('${editId||''}','${type}')" class="px-5 py-2 rounded-xl bg-${color}-500 hover:bg-${color}-600 text-white text-sm font-bold">💾 Save Record</button>
+        </div>
+      `);
+    };
+
+    window.saveExpenseRecord = async function(editId, type) {
+      const title = $('rec-title')?.value?.trim();
+      const desc = $('rec-desc')?.value?.trim();
+      const totalAmount = parseFloat($('rec-amount')?.value||0);
+      const returnDate = $('rec-return')?.value||'';
+      const status = $('rec-status')?.value||'Open';
+      if (!title) return toast(`${type} title is required`,'error');
+      if (!totalAmount || totalAmount <= 0) return toast('Valid amount is required','error');
+      const payload = { title, description:desc, totalAmount, returnDate, status, recordType:type, updatedAt: new Date().toISOString() };
+      try {
+        if (editId) {
+          await updateDoc(doc(db,'expenses',editId), payload);
+          toast(`${type} record updated`,'success');
+        } else {
+          payload.transactions = [];
+          payload.submittedBy = currentUid();
+          payload.createdAt = serverTimestamp();
+          const ref = await addDoc(collection(db,'expenses'), payload);
+          state.users.filter(u=>u.role==='admin').forEach(u => notify(u.id,`💸 New ${type} record "${title}" — ₱${totalAmount.toLocaleString()} by ${getUserName(currentUid())}`,'expenses','expense'));
+          toast(`${type} record created`,'success');
+        }
+        await logActivity('expense','Expenses', editId?`Edited ${type} record`:`Created ${type} record: ${title}`);
+        closeModal();
+      } catch(e) { console.error(e); toast('Failed to save','error'); }
+    };
+
+    window.openRecordDetail = function(recordId) {
+      const r = (state.expenses||[]).find(x=>x.id===recordId);
+      if (!r) return;
+      const isAdmin = state.currentUserDoc?.role === 'admin';
+      const uid = currentUid();
+      const canEdit = isAdmin || r.submittedBy === uid;
+      const type = r.recordType||'RCA';
+      const color = type==='RCA' ? {bg:'bg-blue-500',light:'bg-blue-50 dark:bg-blue-900/20',border:'border-blue-200',text:'text-blue-600'} : {bg:'bg-purple-500',light:'bg-purple-50 dark:bg-purple-900/20',border:'border-purple-200',text:'text-purple-600'};
+      const tot = expRecordTotals(r);
+      const pct = tot.totalFunds > 0 ? Math.min(100, Math.round((tot.spent/tot.totalFunds)*100)) : 0;
+      const isClosed = r.status === 'Closed';
+      const txs = (r.transactions||[]).slice().reverse();
+
+      const txRows = txs.length ? txs.map((t,i) => `
+        <div class="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-muted/30 transition-colors">
+          <div class="w-8 h-8 rounded-full flex items-center justify-center font-black text-sm ${t.txType==='+'?'bg-green-100 dark:bg-green-900/30 text-green-600':'bg-red-100 dark:bg-red-900/30 text-red-500'}">${t.txType}</div>
+          <div class="flex-1 min-w-0">
+            <div class="font-semibold text-sm truncate">${t.description||'—'}</div>
+            <div class="text-xs text-muted-foreground">${t.date||'—'}</div>
+          </div>
+          <div class="text-right shrink-0">
+            <div class="font-black text-sm ${t.txType==='+'?'text-green-600':'text-red-500'}">${t.txType==='+'?'+':'-'}₱${parseFloat(t.amount||0).toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+            <div class="text-[10px] text-muted-foreground">${t.txType==='+'?'Added Funds':'Expense'}</div>
+          </div>
+          ${canEdit ? `<button onclick="window.deleteTransaction('${r.id}','${t.txId}')" class="text-muted-foreground hover:text-destructive p-1 transition-colors" title="Remove"><i class="fa-solid fa-xmark text-xs"></i></button>` : ''}
+        </div>`).join('') : `<div class="py-8 text-center text-muted-foreground text-sm border border-dashed border-border rounded-xl">No transactions yet. Use the buttons below to add.</div>`;
+
+      showModal(`
+        <div class="p-5 border-b border-border flex justify-between items-center ${color.light} rounded-t-xl">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl ${color.bg} text-white flex items-center justify-center font-black text-xs">${type}</div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="font-black text-base">${r.title}</h3>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${isClosed?'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300':'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'}">${isClosed?'● Closed':'● Open'}</span>
+              </div>
+              ${r.description ? `<p class="text-xs text-muted-foreground">${r.description}</p>` : ''}
+            </div>
+          </div>
+          <div class="flex gap-2">
+            ${canEdit ? `<button onclick="window.openCreateRecordModal('${type}','${r.id}')" class="h-8 px-2 rounded-lg border border-border hover:bg-muted text-xs font-medium">✏️</button>` : ''}
+            <button onclick="closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
           </div>
         </div>
         <div class="p-5 space-y-4 overflow-y-auto max-h-[75vh]">
-          <!-- Summary KPIs -->
+          <!-- Financial Summary -->
           <div class="grid grid-cols-3 gap-3">
-            <div class="bg-${typeColor}-50 dark:bg-${typeColor}-900/20 rounded-xl p-4 border border-${typeColor}-200 dark:border-${typeColor}-800 text-center">
-              <div class="text-xs text-${typeColor}-600 font-semibold mb-1">Total Budget</div>
-              <div class="font-black text-xl text-${typeColor}-600">₱${totalBudget.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
-            </div>
-            <div class="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 border border-red-200 dark:border-red-800 text-center">
-              <div class="text-xs text-red-600 font-semibold mb-1">Total Spent</div>
-              <div class="font-black text-xl text-red-500">₱${totalSpent.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
-            </div>
-            <div class="bg-${remaining>=0?'green':'red'}-50 dark:bg-${remaining>=0?'green':'red'}-900/20 rounded-xl p-4 border border-${remaining>=0?'green':'red'}-200 dark:border-${remaining>=0?'green':'red'}-800 text-center">
-              <div class="text-xs text-${remaining>=0?'green':'red'}-600 font-semibold mb-1">Remaining</div>
-              <div class="font-black text-xl text-${remaining>=0?'green-600':'red-500'}">₱${remaining.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
-            </div>
-          </div>
-          <!-- Search/Filter -->
-          <div class="flex gap-2">
-            <input id="popup-exp-search" type="text" placeholder="🔍 Search..." oninput="window._filterPopupExp('${type}')"
-              class="h-9 px-3 rounded-lg border border-input bg-background text-sm flex-1 focus:outline-none focus:ring-1 focus:ring-ring">
-            <select id="popup-exp-status" onchange="window._filterPopupExp('${type}')" class="h-9 px-3 rounded-lg border border-input bg-background text-sm">
-              <option value="">All Status</option>
-              <option>Open</option>
-              <option>Closed</option>
-            </select>
-          </div>
-          <!-- Table -->
-          <div class="border border-border rounded-xl overflow-hidden">
-            <div class="overflow-x-auto">
-              <table class="w-full text-sm text-left">
-                <thead class="text-xs text-muted-foreground uppercase bg-muted/50 border-b border-border">
-                  <tr>
-                    <th class="px-4 py-3">Date</th>
-                    <th class="px-4 py-3">Particulars</th>
-                    <th class="px-4 py-3">Description</th>
-                    <th class="px-4 py-3">Budget (₱)</th>
-                    <th class="px-4 py-3">Spent (₱)</th>
-                    <th class="px-4 py-3">Remaining</th>
-                    <th class="px-4 py-3">Status</th>
-                    <th class="px-4 py-3">By</th>
-                    <th class="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="popup-exp-tbody" class="divide-y divide-border">${buildRows(expenses)}</tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      `);
-      // Store for filter
-      window._popupExpType = type;
-    };
-
-    window._openAddExpFromPopup = function(type) {
-      _expTab = type;
-      closeModal();
-      setTimeout(() => window.openExpenseModal(), 100);
-    };
-
-    window._filterPopupExp = function(type) {
-      const search = ($('popup-exp-search')?.value||'').toLowerCase();
-      const status = $('popup-exp-status')?.value||'';
-      const isAdmin = state.currentUserDoc?.role === 'admin';
-      const uid = currentUid();
-      const statusColors = {
-        Open:   'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300',
-        Closed: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300',
-      };
-      const filtered = (state.expenses||[]).filter(e => e.expenseType === type).filter(e => {
-        const hay = `${e.particulars||''} ${e.description||''}`.toLowerCase();
-        return hay.includes(search) && (!status||e.status===status);
-      });
-      const tbody = $('popup-exp-tbody');
-      if (!tbody) return;
-      if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="9" class="px-5 py-8 text-center text-muted-foreground">No matching expenses</td></tr>`; return; }
-      tbody.innerHTML = filtered.map(e => {
-        const budget = parseFloat(e.budgetAmount||0);
-        const expensed = parseFloat(e.amount||0);
-        const rem = budget - expensed;
-        return `<tr class="hover:bg-muted/30 transition-colors">
-          <td class="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">${e.date||formatDate(e.createdAt)}</td>
-          <td class="px-4 py-3 font-semibold text-sm">${e.particulars||'—'}</td>
-          <td class="px-4 py-3 text-xs text-muted-foreground max-w-[120px] truncate">${e.description||'—'}</td>
-          <td class="px-4 py-3 font-bold text-blue-600 text-xs">₱${budget.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
-          <td class="px-4 py-3 font-bold text-red-500 text-xs">₱${expensed.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
-          <td class="px-4 py-3 font-bold text-xs ${rem>=0?'text-green-600':'text-red-500'}">₱${rem.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
-          <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-bold border ${statusColors[e.status]||statusColors['Open']}">${e.status==='Closed'?'🟢':'🟡'} ${e.status||'Open'}</span></td>
-          <td class="px-4 py-3 text-xs text-muted-foreground">${getUserName(e.submittedBy)}</td>
-          <td class="px-4 py-3 text-right">
-            <div class="flex items-center justify-end gap-1">
-              <button onclick="window.viewExpense('${e.id}')" class="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary text-xs">👁️</button>
-              ${isAdmin || e.submittedBy === uid ? `
-                <button onclick="window.openExpenseModal('${e.id}')" class="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary text-xs">✏️</button>
-                <button onclick="window.deleteExpense('${e.id}')" class="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 text-xs">🗑️</button>
-              ` : ''}
-            </div>
-          </td>
-        </tr>`;
-      }).join('');
-    };
-
-    window.openExpenseModal = function(expId=null) {
-      const isEdit = !!expId;
-      const e = isEdit ? (state.expenses||[]).find(x=>x.id===expId) : { expenseType: _expTab };
-      const defaultType = e?.expenseType || _expTab || 'RCA';
-      showModal(`
-        <div class="p-6 border-b border-border flex justify-between items-center bg-muted/30 rounded-t-xl">
-          <h3 class="font-bold text-lg">${isEdit?'✏️ Edit Expense':'💸 Add Expense'}</h3>
-          <button onclick="window.closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
-        </div>
-        <div class="p-6 space-y-4">
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-sm font-medium mb-1">Expense Type <span class="text-destructive">*</span></label>
-              <div class="flex gap-2">
-                <label class="flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all ${defaultType==='RCA'?'border-blue-500 bg-blue-50 dark:bg-blue-900/20':'border-border hover:border-blue-300'}">
-                  <input type="radio" name="exp-type-radio" id="exp-type-rca" value="RCA" class="hidden" ${defaultType==='RCA'?'checked':''} onchange="document.getElementById('exp-type-sel').value='RCA';document.querySelectorAll('[name=exp-type-radio]').forEach((r,i)=>{r.closest('label').className=r.checked?'flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all border-blue-500 bg-blue-50 dark:bg-blue-900/20':'flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all border-border hover:border-blue-300'})">
-                  <span class="font-bold text-sm">📋 RCA</span>
-                </label>
-                <label class="flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all ${defaultType==='VALE'?'border-purple-500 bg-purple-50 dark:bg-purple-900/20':'border-border hover:border-purple-300'}">
-                  <input type="radio" name="exp-type-radio" id="exp-type-vale" value="VALE" class="hidden" ${defaultType==='VALE'?'checked':''} onchange="document.getElementById('exp-type-sel').value='VALE';document.querySelectorAll('[name=exp-type-radio]').forEach((r,i)=>{r.closest('label').className=r.checked?'flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all border-purple-500 bg-purple-50 dark:bg-purple-900/20':'flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all border-border hover:border-purple-300'})">
-                  <span class="font-bold text-sm">📋 VALE</span>
-                </label>
-              </div>
-              <input type="hidden" id="exp-type-sel" value="${defaultType}">
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-1">Date <span class="text-destructive">*</span></label>
-              <input id="exp-date" type="date" value="${e?.date||new Date().toISOString().slice(0,10)}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
-            </div>
-            <div class="col-span-2">
-              <label class="block text-sm font-medium mb-1">Particulars <span class="text-destructive">*</span></label>
-              <input id="exp-particulars" value="${e?.particulars||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="e.g. Field Visit to Batangas · Office Supplies · Staff Meeting">
-            </div>
-            <div class="col-span-2">
-              <label class="block text-sm font-medium mb-1">Description</label>
-              <input id="exp-desc" value="${e?.description||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="Additional details about this expense...">
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-1">Budget / Cash Advance (₱) <span class="text-destructive">*</span></label>
-              <input id="exp-budget" type="number" step="0.01" min="0" value="${e?.budgetAmount||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="0.00">
-              <p class="text-xs text-muted-foreground mt-1">Total amount given/approved</p>
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-1">Amount Expensed (₱) <span class="text-destructive">*</span></label>
-              <input id="exp-amount" type="number" step="0.01" min="0" value="${e?.amount||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="0.00">
-              <p class="text-xs text-muted-foreground mt-1">Actual amount spent</p>
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-1">Receipt / Reference</label>
-              <input id="exp-ref" value="${e?.reference||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="Receipt number or reference">
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-1">Status</label>
-              <select id="exp-status-sel" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
-                <option value="Open" ${(e?.status==='Open'||!e?.status)?'selected':''}>🟡 Open — Not yet returned</option>
-                <option value="Closed" ${e?.status==='Closed'?'selected':''}>🟢 Closed — Already returned</option>
-              </select>
-            </div>
-            <div class="col-span-2">
-              <label class="block text-sm font-medium mb-1">Notes</label>
-              <textarea id="exp-notes" rows="2" class="w-full px-3 py-2 rounded-xl border border-input bg-background text-sm resize-none" placeholder="Additional notes...">${e?.notes||''}</textarea>
-            </div>
-          </div>
-        </div>
-        <div class="p-6 border-t border-border bg-muted/30 rounded-b-xl flex justify-end gap-3">
-          <button onclick="window.closeModal()" class="px-4 py-2 rounded-xl border border-input bg-background hover:bg-muted text-sm font-medium">Cancel</button>
-          <button onclick="window.saveExpense('${expId||''}')" class="px-5 py-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-bold shadow-sm">💾 Save Expense</button>
-        </div>
-      `);
-    };
-
-    window.saveExpense = async function(expId) {
-      const particulars = $('exp-particulars')?.value?.trim();
-      const desc = $('exp-desc')?.value?.trim();
-      const amount = parseFloat($('exp-amount')?.value||0);
-      const budgetAmount = parseFloat($('exp-budget')?.value||0);
-      const date = $('exp-date')?.value;
-      if (!particulars) return toast('Particulars is required','error');
-      if (!amount || amount <= 0) return toast('Valid expensed amount is required','error');
-      if (!budgetAmount || budgetAmount <= 0) return toast('Valid budget/cash advance amount is required','error');
-      if (!date) return toast('Date is required','error');
-      const payload = {
-        particulars,
-        description: desc || '',
-        expenseType: $('exp-type-sel')?.value || 'RCA',
-        amount,
-        budgetAmount,
-        date,
-        reference: $('exp-ref')?.value?.trim()||'',
-        notes: $('exp-notes')?.value?.trim()||'',
-        status: $('exp-status-sel')?.value || 'Open',
-        submittedBy: currentUid(),
-        createdAt: expId ? (state.expenses.find(e=>e.id===expId)?.createdAt||serverTimestamp()) : serverTimestamp()
-      };
-      try {
-        if (expId) {
-          await updateDoc(doc(db,'expenses',expId), payload);
-          toast('Expense updated');
-        } else {
-          await addDoc(collection(db,'expenses'), payload);
-          toast('Expense submitted');
-          state.users.filter(u=>u.role==='admin').forEach(u => notify(u.id, `💸 New ${payload.expenseType} expense by ${getUserName(currentUid())}: ₱${amount.toLocaleString()} — ${particulars}`, 'expenses', 'expense'));
-        }
-        await logActivity('expense', 'Expenses', expId ? 'Edited expense' : 'Added expense: '+particulars);
-        closeModal();
-      } catch(e) { console.error(e); toast('Failed to save expense','error'); }
-    };
-
-    window.viewExpense = function(expId) {
-      const e = (state.expenses||[]).find(x=>x.id===expId);
-      if (!e) return;
-      const isAdmin = state.currentUserDoc?.role === 'admin';
-      const uid = currentUid();
-      const canEdit = isAdmin || e.submittedBy === uid;
-      const budget    = parseFloat(e.budgetAmount||0);
-      const expensed  = parseFloat(e.amount||0);
-      const remaining = budget - expensed;
-      const statusColors = {
-        Open:   'bg-orange-50 text-orange-700 border-orange-200',
-        Closed: 'bg-green-50 text-green-700 border-green-200',
-      };
-      showModal(`
-        <div class="p-6 border-b border-border flex justify-between items-center bg-muted/30 rounded-t-xl">
-          <div class="flex items-center gap-3">
-            <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-primary/10 text-primary border border-primary/20">${e.expenseType||'RCA'}</span>
-            <h3 class="font-bold text-lg">💸 Expense Details</h3>
-          </div>
-          <button onclick="window.closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
-        </div>
-        <div class="p-6 space-y-4">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-xl font-bold">${e.particulars||'—'}</h4>
-              ${e.description ? `<p class="text-sm text-muted-foreground mt-0.5">${e.description}</p>` : ''}
-            </div>
-            <span class="px-3 py-1 rounded-full text-sm font-bold border ${statusColors[e.status]||statusColors['Open']}">${e.status==='Closed'?'🟢':'🟡'} ${e.status||'Open'}</span>
-          </div>
-          <!-- Budget tracker -->
-          <div class="grid grid-cols-3 gap-3">
-            <div class="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 border border-blue-200 dark:border-blue-800 text-center">
-              <div class="text-xs text-blue-600 dark:text-blue-400 font-semibold mb-1">Budget / Cash Advance</div>
-              <div class="font-black text-xl text-blue-600 dark:text-blue-400">₱${budget.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+            <div class="${color.light} rounded-xl p-3 border ${color.border} text-center">
+              <div class="text-xs ${color.text} font-semibold mb-1">Total Funds</div>
+              <div class="font-black text-lg ${color.text}">₱${tot.totalFunds.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+              <div class="text-[10px] text-muted-foreground">Initial + Added</div>
             </div>
             <div class="bg-red-50 dark:bg-red-900/20 rounded-xl p-3 border border-red-200 dark:border-red-800 text-center">
-              <div class="text-xs text-red-600 dark:text-red-400 font-semibold mb-1">Amount Expensed</div>
-              <div class="font-black text-xl text-red-500">₱${expensed.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+              <div class="text-xs text-red-600 font-semibold mb-1">Total Spent</div>
+              <div class="font-black text-lg text-red-500">₱${tot.spent.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+              <div class="text-[10px] text-muted-foreground">All expenses</div>
             </div>
-            <div class="bg-${remaining>=0?'green':'red'}-50 dark:bg-${remaining>=0?'green':'red'}-900/20 rounded-xl p-3 border border-${remaining>=0?'green':'red'}-200 dark:border-${remaining>=0?'green':'red'}-800 text-center">
-              <div class="text-xs text-${remaining>=0?'green':'red'}-600 font-semibold mb-1">Remaining</div>
-              <div class="font-black text-xl text-${remaining>=0?'green-600':'red-500'}">₱${remaining.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+            <div class="${tot.remaining>=0?'bg-green-50 dark:bg-green-900/20 border-green-200':'bg-red-50 dark:bg-red-900/20 border-red-200'} rounded-xl p-3 border text-center">
+              <div class="text-xs ${tot.remaining>=0?'text-green-600':'text-red-600'} font-semibold mb-1">Remaining</div>
+              <div class="font-black text-lg ${tot.remaining>=0?'text-green-600':'text-red-500'}">₱${tot.remaining.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+              <div class="text-[10px] text-muted-foreground">${tot.remaining>=0?'Available':'Overdrawn'}</div>
             </div>
           </div>
-          <div class="grid grid-cols-2 gap-3 text-sm">
-            <div class="bg-muted/40 rounded-xl p-3"><div class="text-xs text-muted-foreground mb-1">Date</div><div class="font-medium">${e.date||'—'}</div></div>
-            <div class="bg-muted/40 rounded-xl p-3"><div class="text-xs text-muted-foreground mb-1">Receipt / Reference</div><div class="font-medium">${e.reference||'—'}</div></div>
-            <div class="bg-muted/40 rounded-xl p-3 col-span-2"><div class="text-xs text-muted-foreground mb-1">Submitted By</div><div class="flex items-center gap-2">${getUserAvatar(e.submittedBy,'w-6 h-6 text-xs')} ${getUserName(e.submittedBy)}</div></div>
-          </div>
-          ${e.notes ? `<div class="bg-muted/40 rounded-xl p-3 text-sm"><div class="text-xs text-muted-foreground mb-1">Notes</div>${e.notes}</div>` : ''}
-          ${canEdit ? `
-          <div class="pt-3 border-t border-border">
-            <label class="block text-sm font-semibold mb-2">Update Status</label>
-            <div class="flex gap-2">
-              <button onclick="window.updateExpenseStatus('${e.id}','Open')" class="flex-1 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${e.status==='Open'||!e.status?'bg-orange-500 text-white border-orange-500':'border-border hover:bg-muted'}">🟡 Open</button>
-              <button onclick="window.updateExpenseStatus('${e.id}','Closed')" class="flex-1 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${e.status==='Closed'?'bg-green-500 text-white border-green-500':'border-border hover:bg-muted'}">🟢 Closed (Returned)</button>
+          <!-- Progress bar -->
+          <div>
+            <div class="h-2.5 bg-muted rounded-full overflow-hidden">
+              <div class="h-full rounded-full transition-all ${pct>90?'bg-red-500':pct>70?'bg-yellow-500':color.bg}" style="width:${pct}%"></div>
             </div>
-          </div>` : ''}
+            <div class="flex justify-between text-[10px] text-muted-foreground mt-1">
+              <span>Budget utilization</span><span>${pct}% used${r.returnDate?' · Return: '+r.returnDate:''}</span>
+            </div>
+          </div>
+          <!-- Info row -->
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div class="bg-muted/40 rounded-lg p-2.5"><span class="text-muted-foreground">Initial Amount: </span><span class="font-bold">₱${parseFloat(r.totalAmount||0).toLocaleString('en-US',{minimumFractionDigits:2})}</span></div>
+            <div class="bg-muted/40 rounded-lg p-2.5"><span class="text-muted-foreground">Submitted by: </span><span class="font-bold">${getUserName(r.submittedBy)}</span></div>
+          </div>
+          <!-- Transactions -->
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <h4 class="font-bold text-sm">📋 Transactions (${(r.transactions||[]).length})</h4>
+            </div>
+            <div class="space-y-2 max-h-52 overflow-y-auto pr-1">${txRows}</div>
+          </div>
+          <!-- Action buttons -->
           ${canEdit ? `
-          <div class="flex gap-2 pt-2">
-            <button onclick="closeModal();setTimeout(()=>window.openExpenseModal('${e.id}'),100)" class="flex-1 px-4 py-2 rounded-xl border border-border text-sm font-medium hover:bg-muted">✏️ Edit</button>
-            <button onclick="closeModal();window.deleteExpense('${e.id}')" class="px-4 py-2 rounded-xl border border-destructive/30 text-destructive hover:bg-destructive/10 text-sm font-medium">🗑️ Delete</button>
+          <div class="grid grid-cols-2 gap-3 pt-2 border-t border-border">
+            <button onclick="window.openAddTransactionModal('${r.id}','+')" class="h-10 rounded-xl bg-green-500 hover:bg-green-600 text-white text-sm font-bold transition-colors flex items-center justify-center gap-2 shadow-sm">
+              <span class="text-lg font-black leading-none">+</span> Add Funds
+            </button>
+            <button onclick="window.openAddTransactionModal('${r.id}','-')" class="h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-bold transition-colors flex items-center justify-center gap-2 shadow-sm">
+              <span class="text-lg font-black leading-none">−</span> Add Expense
+            </button>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="window.toggleRecordStatus('${r.id}')" class="flex-1 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${isClosed?'border-border hover:bg-muted text-foreground':'bg-green-500 text-white border-green-500 hover:bg-green-600'}">${isClosed?'🟡 Reopen':'🟢 Close Record'}</button>
+            <button onclick="closeModal();setTimeout(()=>window.deleteExpenseRecord('${r.id}'),100)" class="px-4 py-2 rounded-xl border border-destructive/30 text-destructive hover:bg-destructive/10 text-sm font-medium">🗑️</button>
           </div>` : ''}
         </div>
       `);
     };
 
-    window.updateExpenseStatus = async function(expId, status) {
+    window.openAddTransactionModal = function(recordId, txType) {
+      const r = (state.expenses||[]).find(x=>x.id===recordId);
+      if (!r) return;
+      const isPlus = txType === '+';
+      showModal(`
+        <div class="p-5 border-b border-border flex justify-between items-center ${isPlus?'bg-green-50 dark:bg-green-900/20':'bg-red-50 dark:bg-red-900/20'} rounded-t-xl">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-full ${isPlus?'bg-green-500':'bg-red-500'} text-white flex items-center justify-center font-black text-lg">${txType}</div>
+            <div>
+              <h3 class="font-bold">${isPlus?'Add Funds':'Record Expense'}</h3>
+              <p class="text-xs text-muted-foreground">${r.title}</p>
+            </div>
+          </div>
+          <button onclick="closeModal();setTimeout(()=>window.openRecordDetail('${recordId}'),100)" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <div class="p-6 space-y-4">
+          <div>
+            <label class="block text-sm font-semibold mb-1">Amount (₱) <span class="text-destructive">*</span></label>
+            <input id="tx-amount" type="number" step="0.01" min="0" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="0.00">
+          </div>
+          <div>
+            <label class="block text-sm font-semibold mb-1">Description <span class="text-destructive">*</span></label>
+            <input id="tx-desc" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="${isPlus?'e.g. Additional cash advance':'e.g. Hotel accommodation'}">
+          </div>
+          <div>
+            <label class="block text-sm font-semibold mb-1">Date <span class="text-destructive">*</span></label>
+            <input id="tx-date" type="date" value="${new Date().toISOString().slice(0,10)}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
+          </div>
+        </div>
+        <div class="p-5 border-t border-border flex justify-end gap-2">
+          <button onclick="closeModal();setTimeout(()=>window.openRecordDetail('${recordId}'),100)" class="px-4 py-2 rounded-xl border border-border text-sm">Cancel</button>
+          <button onclick="window.saveTransaction('${recordId}','${txType}')" class="px-5 py-2 rounded-xl ${isPlus?'bg-green-500 hover:bg-green-600':'bg-red-500 hover:bg-red-600'} text-white text-sm font-bold">
+            ${isPlus?'＋ Add Funds':'− Record Expense'}
+          </button>
+        </div>
+      `);
+    };
+
+    window.saveTransaction = async function(recordId, txType) {
+      const amount = parseFloat($('tx-amount')?.value||0);
+      const desc = $('tx-desc')?.value?.trim();
+      const date = $('tx-date')?.value;
+      if (!amount || amount <= 0) return toast('Valid amount required','error');
+      if (!desc) return toast('Description required','error');
+      if (!date) return toast('Date required','error');
+      const r = (state.expenses||[]).find(x=>x.id===recordId);
+      if (!r) return;
+      const txs = r.transactions||[];
+      const newTx = { txId: Date.now().toString(36)+Math.random().toString(36).slice(2), txType, amount, description:desc, date, addedBy:currentUid() };
+      txs.push(newTx);
       try {
-        await updateDoc(doc(db,'expenses',expId), { status });
-        const e = state.expenses.find(x=>x.id===expId);
-        if (e) notify(e.submittedBy, `💸 Your ${e.expenseType||''} expense "${e.particulars||e.description}" is now ${status}`, 'expenses', 'expense');
-        toast(`Status updated to ${status}`);
+        await updateDoc(doc(db,'expenses',recordId), { transactions: txs, updatedAt: new Date().toISOString() });
+        toast(txType==='+'?'✅ Funds added':'✅ Expense recorded','success');
+        closeModal();
+        setTimeout(() => window.openRecordDetail(recordId), 200);
+      } catch(e) { console.error(e); toast('Failed to save transaction','error'); }
+    };
+
+    window.deleteTransaction = async function(recordId, txId) {
+      const r = (state.expenses||[]).find(x=>x.id===recordId);
+      if (!r) return;
+      if (!confirm('Remove this transaction?')) return;
+      const txs = (r.transactions||[]).filter(t => t.txId !== txId);
+      try {
+        await updateDoc(doc(db,'expenses',recordId), { transactions: txs, updatedAt: new Date().toISOString() });
+        toast('Transaction removed');
+        closeModal();
+        setTimeout(() => window.openRecordDetail(recordId), 200);
+      } catch(e) { toast('Failed to remove','error'); }
+    };
+
+    window.toggleRecordStatus = async function(recordId) {
+      const r = (state.expenses||[]).find(x=>x.id===recordId);
+      if (!r) return;
+      const newStatus = r.status === 'Closed' ? 'Open' : 'Closed';
+      try {
+        await updateDoc(doc(db,'expenses',recordId), { status: newStatus, updatedAt: new Date().toISOString() });
+        toast(`Record marked as ${newStatus}`,'success');
         closeModal();
       } catch(e) { toast('Failed to update','error'); }
     };
 
-    window.deleteExpense = async function(id) {
-      if (!confirm('Delete this expense?')) return;
-      try { await deleteDoc(doc(db,'expenses',id)); toast('Expense deleted'); }
+    window.deleteExpenseRecord = async function(id) {
+      if (!confirm('Delete this record and all its transactions?')) return;
+      try { await deleteDoc(doc(db,'expenses',id)); toast('Record deleted'); }
       catch(e) { toast('Failed to delete','error'); }
     };
 
+    // Legacy aliases so old calls don't break
+    window.viewExpense = (id) => window.openRecordDetail(id);
+    window.deleteExpense = (id) => window.deleteExpenseRecord(id);
+
     window.exportExpensesCSV = function() {
-      const rows = [['Date','Type','Particulars','Description','Budget (₱)','Amount Expensed (₱)','Remaining (₱)','Reference','Status','Submitted By','Notes']];
-      (state.expenses||[]).forEach(e => {
-        const budget = parseFloat(e.budgetAmount||0);
-        const expensed = parseFloat(e.amount||0);
-        rows.push([e.date||'',e.expenseType||'',e.particulars||'',e.description||'',budget.toFixed(2),expensed.toFixed(2),(budget-expensed).toFixed(2),e.reference||'',e.status||'Open',getUserName(e.submittedBy),e.notes||'']);
+      const rows = [['Type','Title','Description','Initial Amount (₱)','Total Funds (₱)','Total Spent (₱)','Remaining (₱)','Return Date','Status','Submitted By','Transactions']];
+      (state.expenses||[]).filter(e=>e.recordType).forEach(r => {
+        const tot = expRecordTotals(r);
+        rows.push([r.recordType||'',r.title||'',r.description||'',parseFloat(r.totalAmount||0).toFixed(2),tot.totalFunds.toFixed(2),tot.spent.toFixed(2),tot.remaining.toFixed(2),r.returnDate||'',r.status||'Open',getUserName(r.submittedBy),(r.transactions||[]).length]);
       });
       downloadCSV(`expenses_${new Date().toISOString().slice(0,10)}.csv`, rows);
       toast('Expenses exported');
@@ -6972,15 +6914,16 @@ document.addEventListener('DOMContentLoaded', ()=>{
      ***********************/
     function renderMySettings() {
       const u = state.currentUserDoc || {};
+      // 6 fixed palettes — each has 5 hex colors; primary = colors[0]
       const palettes = [
-        {name:'Default Blue', primary:'221.2 83.2% 53.3%', label:'🔵'},
-        {name:'Purple', primary:'270 95% 60%', label:'🟣'},
-        {name:'Green', primary:'142 70% 45%', label:'🟢'},
-        {name:'Orange', primary:'25 95% 55%', label:'🟠'},
-        {name:'Rose', primary:'345 82% 55%', label:'🌹'},
-        {name:'Teal', primary:'172 66% 50%', label:'🩵'},
+        { name:'Palette 1', colors:['#00caae','#288ae1','#e84d6d','#f9882c','#febb1f'] },
+        { name:'Palette 2', colors:['#ec6369','#f2c94a','#66dc9c','#50acee','#6a6fe8'] },
+        { name:'Palette 3', colors:['#38d1c0','#5866c2','#fdaa29','#9860d0','#ef4f85'] },
+        { name:'Palette 4', colors:['#e84d6d','#00caae','#4a86f2','#fbba3c','#f9539c'] },
+        { name:'Palette 5', colors:['#ec656b','#ff9361','#d1e76e','#6cd09b','#5ca9e0'] },
+        { name:'Palette 6', colors:['#fe6769','#bae490','#56a8fb','#fdcc58','#f5669d'] },
       ];
-      const savedPalette = localStorage.getItem('sda_palette')||'Default Blue';
+      const savedPalette = localStorage.getItem('sda_palette')||'Palette 1';
       const html = `
         <div class="max-w-2xl mx-auto space-y-6 animate-slide-in">
           <!-- Profile Card -->
@@ -7024,15 +6967,21 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
           <!-- Color Palette -->
           <div class="bg-card border border-border rounded-2xl p-6 shadow-sm">
-            <h3 class="font-bold text-lg mb-4">🎨 Color Theme</h3>
-            <div class="grid grid-cols-3 gap-3">
-              ${palettes.map(p => `
-                <button onclick="window.applyPalette('${p.name}','${p.primary}')"
-                  class="p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${savedPalette===p.name?'border-primary bg-primary/5':'border-border hover:border-primary/50'}">
-                  <span class="text-2xl">${p.label}</span>
-                  <div class="w-full h-3 rounded-full" style="background:hsl(${p.primary})"></div>
-                  <span class="text-xs font-semibold">${p.name}</span>
-                </button>`).join('')}
+            <h3 class="font-bold text-lg mb-1">🎨 Color Theme</h3>
+            <p class="text-xs text-muted-foreground mb-4">Choose a color palette for the app's accent colors</p>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+              ${palettes.map(p => {
+                const isActive = savedPalette === p.name;
+                return `
+                <button onclick="window.applyPalette('${p.name}','${p.colors[0]}')"
+                  class="p-3.5 rounded-xl border-2 transition-all flex flex-col gap-2 text-left ${isActive?'border-primary bg-primary/5 shadow-sm':'border-border hover:border-primary/40 hover:bg-muted/30'}">
+                  <div class="flex gap-1.5 items-center">
+                    ${p.colors.map((c,i) => `<div class="rounded-full transition-all ${i===0?'w-6 h-6 shadow-sm':'w-4 h-4'}" style="background:${c}"></div>`).join('')}
+                    ${isActive ? '<span class="ml-auto text-primary text-xs font-bold">✓</span>' : ''}
+                  </div>
+                  <span class="text-xs font-semibold ${isActive?'text-primary':'text-foreground'}">${p.name}</span>
+                </button>`;
+              }).join('')}
             </div>
           </div>
 
@@ -7045,21 +6994,38 @@ document.addEventListener('DOMContentLoaded', ()=>{
       $('content-area').innerHTML = html;
     }
 
-    window.applyPalette = function(name, primary) {
-      document.documentElement.style.setProperty('--primary', primary);
-      document.documentElement.style.setProperty('--ring', primary);
+    // Convert hex color to HSL string for CSS variable
+    function hexToHslStr(hex) {
+      let r=parseInt(hex.slice(1,3),16)/255, g=parseInt(hex.slice(3,5),16)/255, b=parseInt(hex.slice(5,7),16)/255;
+      let max=Math.max(r,g,b), min=Math.min(r,g,b), h,s,l=(max+min)/2;
+      if(max===min){h=s=0;}else{
+        const d=max-min; s=l>0.5?d/(2-max-min):d/(max+min);
+        switch(max){case r:h=((g-b)/d+(g<b?6:0))/6;break;case g:h=((b-r)/d+2)/6;break;default:h=((r-g)/d+4)/6;}
+      }
+      return `${Math.round(h*360)} ${Math.round(s*100)}% ${Math.round(l*100)}%`;
+    }
+
+    window.applyPalette = function(name, hex) {
+      const hsl = hexToHslStr(hex);
+      document.documentElement.style.setProperty('--primary', hsl);
+      document.documentElement.style.setProperty('--ring', hsl);
       localStorage.setItem('sda_palette', name);
-      localStorage.setItem('sda_primary', primary);
+      localStorage.setItem('sda_primary_hex', hex);
       renderMySettings();
       toast('🎨 Theme applied!');
     };
 
     // Apply saved palette on boot
     (function() {
-      const saved = localStorage.getItem('sda_primary');
-      if (saved) {
-        document.documentElement.style.setProperty('--primary', saved);
-        document.documentElement.style.setProperty('--ring', saved);
+      const savedHex = localStorage.getItem('sda_primary_hex');
+      const legacyHsl = localStorage.getItem('sda_primary');
+      if (savedHex) {
+        const hsl = hexToHslStr(savedHex);
+        document.documentElement.style.setProperty('--primary', hsl);
+        document.documentElement.style.setProperty('--ring', hsl);
+      } else if (legacyHsl) {
+        document.documentElement.style.setProperty('--primary', legacyHsl);
+        document.documentElement.style.setProperty('--ring', legacyHsl);
       }
     })();
 
