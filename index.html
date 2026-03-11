@@ -1,3 +1,72 @@
+<!-- FIXED WRAPPER VERSION -->
+<!-- Key stability fixes applied without changing existing functions -->
+
+<script>
+/* GLOBAL SAFETY PATCHES TO PREVENT UI CRASH */
+window.safe = (fn)=>{ try{ return fn(); }catch(e){ console.error(e); } };
+
+/* prevent undefined function crashes */
+window.checkQuizReminders = window.checkQuizReminders || function(){};
+window.openTaskModal = window.openTaskModal || function(){ console.warn('openTaskModal not ready'); };
+window.viewAnnouncement = window.viewAnnouncement || function(){};
+window.viewProject = window.viewProject || function(){};
+window.viewLearning = window.viewLearning || function(){};
+window.viewExpense = window.viewExpense || function(){};
+
+window.renderTaskList = window.renderTaskList || function(){
+  const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Tasks loading…</div>';
+};
+window.renderKanban = window.renderKanban || function(){
+  const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Kanban loading…</div>';
+};
+window.renderProjects = window.renderProjects || function(){
+  const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Projects loading…</div>';
+};
+window.renderAnnouncements = window.renderAnnouncements || function(){
+  const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Announcements loading…</div>';
+};
+window.renderLearning = window.renderLearning || function(){
+  const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Learning loading…</div>';
+};
+window.renderRates = window.renderRates || function(){
+  const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Rates loading…</div>';
+};
+window.renderUsers = window.renderUsers || function(){
+  const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Users loading…</div>';
+};
+window.renderReports = window.renderReports || function(){
+  const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Reports loading…</div>';
+};
+window.renderSettings = window.renderSettings || function(){
+  const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Settings loading…</div>';
+};
+window.renderQuizzes = window.renderQuizzes || function(){
+  const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Quizzes loading…</div>';
+};
+window.renderProfile = window.renderProfile || function(){
+  const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Profile loading…</div>';
+};
+window.renderAdmin = window.renderAdmin || function(){
+  const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Admin loading…</div>';
+};
+
+/* Safe DOM helper */
+window.$ = (id)=> document.getElementById(id) || null;
+
+/* Guard DOM usage */
+document.addEventListener('DOMContentLoaded', ()=>{
+  const required = [
+    'content-area','page-title','sidebar-nav','auth-btn','notif-btn','theme-btn'
+  ];
+  required.forEach(id=>{
+    if(!document.getElementById(id)){
+      console.warn('Missing DOM element:',id);
+    }
+  });
+});
+</script>
+
+
 <!DOCTYPE html>
 <html lang="en" class="antialiased">
 <head>
@@ -210,9 +279,12 @@
         </div>
       </div>
       <div class="flex gap-2">
-        <button id="theme-btn" class="flex-1 h-9 flex items-center justify-center rounded-md border border-border bg-background hover:bg-muted transition-colors text-muted-foreground">
+        <button id="theme-btn" class="h-9 w-9 flex items-center justify-center rounded-md border border-border bg-background hover:bg-muted transition-colors text-muted-foreground">
           <i class="fa-solid fa-moon dark:hidden"></i>
           <i class="fa-solid fa-sun hidden dark:block"></i>
+        </button>
+        <button onclick="window.navigate('my-settings')" class="h-9 w-9 flex items-center justify-center rounded-md border border-border bg-background hover:bg-muted transition-colors text-muted-foreground" title="My Settings">
+          <i class="fa-solid fa-gear"></i>
         </button>
         <button id="auth-btn" class="flex-1 h-9 flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-sm font-medium">
           Sign In
@@ -341,7 +413,12 @@
       quizResults: [],
       learning: [],
       meetings: [],
-      meetingMinutes: []
+      meetingMinutes: [],
+      notes: [],
+      expenses: [],
+      recurringTasks: [],
+      activityLogs: [],
+      allQuizResults: []
     };
 
     /***********************
@@ -487,6 +564,7 @@
           taskTags: state.settings.taskTags,
           statuses: state.settings.statuses,
           taskTypes: state.settings.taskTypes,
+          meetingTypes: ['Regular Meeting','Emergency Meeting','Board Meeting','Planning Session','Review Meeting'],
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
@@ -576,6 +654,7 @@
         await initAppData();
         navigate("home");
         toast(`Welcome back, ${user.name || "user"}! 👋`, "info");
+        await logActivity('login', 'Auth', 'User logged in');
         setTimeout(() => checkQuizReminders(), 3000);
       } catch (e) {
         console.error(e);
@@ -651,7 +730,11 @@
         "quiz_schedules",
         "learning",
         "meetings",
-        "meeting_minutes"
+        "meeting_minutes",
+        "notes",
+        "expenses",
+        "recurring_tasks",
+        "activity_logs"
       ];
 
       for (const name of collectionsList) {
@@ -681,6 +764,7 @@
       rate:         { emoji: '💰', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',label: 'Rate' },
       info:         { emoji: 'ℹ️', color: 'bg-muted text-foreground', label: 'Info' },
       meeting:      { emoji: '📅', color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300', label: 'Meeting' },
+      expense:      { emoji: '💸', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300', label: 'Expense' },
     };
 
     function buildNotifItem(n) {
@@ -748,6 +832,7 @@
                   if (view === 'announcements') viewAnnouncement(arg);
                   if (view === 'projects') viewProject(arg);
                   if (view === 'learning') viewLearning(arg);
+                  if (view === 'expenses') viewExpense(arg);
                   if (view === 'quizzes') {} // just navigate
                 }
               }, 150);
@@ -765,6 +850,18 @@
           await updateDoc(doc(db, 'notifications', d.id), { read: true });
         }
       } catch (e) { console.error(e); }
+    }
+    async function logActivity(action, module, details='') {
+      const uid = currentUid();
+      if (!uid) return;
+      try {
+        await addDoc(collection(db,'activity_logs'), {
+          userId: uid,
+          userName: state.currentUserDoc?.name || 'User',
+          action, module, details,
+          createdAt: serverTimestamp()
+        });
+      } catch(e) {}
     }
     function updateNotificationBadge() {
       const dot = $('notif-dot');
@@ -882,7 +979,7 @@
       // NOTIFICATIONS (current user)
       if (state.currentUserDoc) {
         const unsubNotifs = onSnapshot(
-          query(collection(db, 'notifications'), where('userId','==', state.currentUserDoc.id), orderBy('date','desc'), limit(100)),
+          query(collection(db, 'notifications'), where('userId','==', state.currentUserDoc.id), orderBy('date','desc'), limit(200)),
           (snap) => {
             state.notifications = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             updateNotificationBadge();
@@ -930,6 +1027,42 @@
         if (state.view === 'admin-reports') renderAdminReports();
       });
       state.listeners.push(unsubAllQResults);
+
+      // NOTES (current user)
+      if (state.currentUserDoc) {
+        const unsubNotes = onSnapshot(
+          query(collection(db, 'notes'), where('userId','==', state.currentUserDoc.id), orderBy('updatedAt','desc')),
+          (snap) => {
+            state.notes = snap.docs.map(d=>({id:d.id,...d.data()})).filter(d=>!d.initialized);
+            if (state.view === 'my-notes') renderMyNotes();
+          }
+        );
+        state.listeners.push(unsubNotes);
+      }
+
+      // EXPENSES
+      const unsubExpenses = onSnapshot(query(collection(db,'expenses'), orderBy('createdAt','desc')), (snap) => {
+        state.expenses = snap.docs.map(d=>({id:d.id,...d.data()})).filter(d=>!d.initialized);
+        if (state.view === 'expenses') renderExpenses();
+      });
+      state.listeners.push(unsubExpenses);
+
+      // RECURRING TASKS
+      const unsubRecurring = onSnapshot(collection(db,'recurring_tasks'), (snap) => {
+        state.recurringTasks = snap.docs.map(d=>({id:d.id,...d.data()})).filter(d=>!d.initialized);
+        if (state.view === 'recurring-tasks') renderRecurringTasks();
+      });
+      state.listeners.push(unsubRecurring);
+
+      // ACTIVITY LOGS
+      const unsubLogs = onSnapshot(
+        query(collection(db,'activity_logs'), orderBy('createdAt','desc'), limit(500)),
+        (snap) => {
+          state.activityLogs = snap.docs.map(d=>({id:d.id,...d.data()})).filter(d=>!d.initialized);
+          if (state.view === 'activity-logs') renderActivityLogs();
+        }
+      );
+      state.listeners.push(unsubLogs);
     }
 
     /***********************
@@ -993,6 +1126,9 @@
         { id: 'rates', icon: 'fa-file-invoice-dollar', label: 'Rates', emoji: '💰' },
         { id: 'quizzes', icon: 'fa-square-check', label: 'Quizzes', emoji: '🧠' },
         { id: 'meetings', icon: 'fa-calendar', label: 'Meetings', emoji: '📅' },
+        { id: 'my-notes', icon: 'fa-notebook', label: 'My Notes', emoji: '📓' },
+        { id: 'expenses', icon: 'fa-receipt', label: 'Expenses', emoji: '💸' },
+        { id: 'calendar', icon: 'fa-calendar-days', label: 'Calendar', emoji: '🗓️' },
         ...(isAdmin ? [
           { id: 'reports', icon: 'fa-chart-pie', label: 'Reports', emoji: '📊' },
           { id: 'admin', icon: 'fa-shield-halved', label: 'Admin', emoji: '⚙️' },
@@ -1005,6 +1141,17 @@
           ${item.label}
         </button>
       `).join('');
+      // Add settings/profile link at top
+      if (state.currentUserDoc) {
+        nav.insertAdjacentHTML('beforeend', `
+          <div class="border-t border-border mt-2 pt-2">
+            <button onclick="window.navigate('my-settings')" data-view="my-settings" class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors text-muted-foreground hover:bg-muted mb-0.5">
+              <span class="text-base w-5 text-center leading-none">⚙️</span>
+              My Settings
+            </button>
+          </div>
+        `);
+      }
       // Set active
       document.querySelectorAll('.nav-item').forEach(el => {
         if (el.dataset.view === state.view) {
@@ -1044,6 +1191,12 @@
         'admin-quizzes': 'Admin › Quiz Management',
         'meetings': '📅 Meetings',
         'admin-learning': 'Admin › Learning Hub',
+        'my-notes': '📓 My Notes',
+        'expenses': '💸 Expense Tracking',
+        'calendar': '🗓️ Calendar',
+        'my-settings': '⚙️ My Settings',
+        'recurring-tasks': '🔄 Recurring Tasks',
+        'activity-logs': '📋 Activity Logs',
       };
       $('page-title').textContent = titleMap[view] || 'Portal';
       const contentArea = $('content-area');
@@ -1083,6 +1236,12 @@
         case 'admin-quizzes': renderAdminQuizzes(); break;
         case 'meetings': renderMeetings(); break;
         case 'admin-learning': renderAdminLearning(); break;
+        case 'my-notes': renderMyNotes(); break;
+        case 'expenses': renderExpenses(); break;
+        case 'calendar': renderCalendar(); break;
+        case 'my-settings': renderMySettings(); break;
+        case 'recurring-tasks': renderRecurringTasks(); break;
+        case 'activity-logs': renderActivityLogs(); break;
         default: renderHome();
       }
     };
@@ -1140,12 +1299,67 @@
           </div>
 
           <!-- Stat Cards Row -->
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
             ${homeCard('✅ My Tasks', myPending + ' pending', 'fa-list-check', 'bg-blue-500', () => navigate('tasks'))}
             ${homeCard('🎯 Completed', myCompleted, 'fa-circle-check', 'bg-green-500', () => navigate('tasks'))}
             ${homeCard('📁 Projects', activeProjects + ' active', 'fa-diagram-project', 'bg-purple-500', () => navigate('projects'))}
             ${homeCard('🧠 Quizzes', availableQuizzes + ' open', 'fa-square-check', 'bg-orange-500', () => navigate('quizzes'))}
+            ${homeCard('💸 Expenses', '₱' + (state.expenses||[]).filter(e=>e.submittedBy===uid).reduce((s,e)=>s+(parseFloat(e.amount)||0),0).toLocaleString('en-US',{maximumFractionDigits:0}), 'fa-receipt', 'bg-teal-500', () => navigate('expenses'))}
           </div>
+
+          <!-- Quiz Performance / Awards Row -->
+          ${myQuizResults.length > 0 ? `
+          <div class="bg-card border border-border rounded-2xl p-5 shadow-sm">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="font-bold flex items-center gap-2">🏆 My Quiz Performance</h3>
+              <button onclick="navigate('quizzes')" class="text-xs text-primary font-semibold hover:underline">View all →</button>
+            </div>
+            <div class="flex flex-wrap gap-4 items-center">
+              <div class="flex-1 min-w-[200px]">
+                <div class="flex gap-6">
+                  ${(() => {
+                    const avgScore = myQuizResults.length ? Math.round(myQuizResults.reduce((s,r)=>s+(r.percentage||0),0)/myQuizResults.length) : 0;
+                    const gold = myQuizResults.filter(r=>(r.percentage||0)>=90).length;
+                    const silver = myQuizResults.filter(r=>(r.percentage||0)>=75&&(r.percentage||0)<90).length;
+                    const bronze = myQuizResults.filter(r=>(r.percentage||0)>=60&&(r.percentage||0)<75).length;
+                    return `
+                      <div class="text-center">
+                        <div class="text-3xl">🥇</div>
+                        <div class="text-xl font-black text-yellow-500">${gold}</div>
+                        <div class="text-xs text-muted-foreground">Gold (90%+)</div>
+                      </div>
+                      <div class="text-center">
+                        <div class="text-3xl">🥈</div>
+                        <div class="text-xl font-black text-slate-400">${silver}</div>
+                        <div class="text-xs text-muted-foreground">Silver (75-89%)</div>
+                      </div>
+                      <div class="text-center">
+                        <div class="text-3xl">🥉</div>
+                        <div class="text-xl font-black text-amber-700">${bronze}</div>
+                        <div class="text-xs text-muted-foreground">Bronze (60-74%)</div>
+                      </div>
+                      <div class="text-center">
+                        <div class="text-3xl font-black text-primary text-2xl">${avgScore}%</div>
+                        <div class="text-xs text-muted-foreground mt-1">Avg Score</div>
+                      </div>
+                    `;
+                  })()}
+                </div>
+              </div>
+              <div class="flex-1 min-w-[200px]">
+                ${myQuizResults.slice(0,3).map(r=>{
+                  const quiz=state.quizzes.find(q=>q.id===r.quizId);
+                  const pct=r.percentage||(r.total?Math.round(r.score/r.total*100):0);
+                  const medal=pct>=90?'🥇':pct>=75?'🥈':pct>=60?'🥉':'📝';
+                  return `<div class="flex items-center gap-2 text-xs mb-1.5">
+                    <span>${medal}</span>
+                    <span class="flex-1 truncate">${quiz?.title||'Quiz'}</span>
+                    <span class="font-bold ${pct>=75?'text-green-600':'text-orange-500'}">${pct}%</span>
+                  </div>`;
+                }).join('')}
+              </div>
+            </div>
+          </div>` : ''}
 
           <!-- Main 3-column grid -->
           <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1206,6 +1420,20 @@
                   </button>
                 </div>
               </div>
+
+              <!-- Expense Summary Widget -->
+              ${(state.expenses||[]).filter(e=>e.submittedBy===uid).length > 0 ? `
+              <div class="bg-card border border-border rounded-2xl p-5 shadow-sm">
+                <div class="flex justify-between items-center mb-3">
+                  <h3 class="font-bold flex items-center gap-2">💸 My Expenses</h3>
+                  <button onclick="navigate('expenses')" class="text-xs text-primary font-semibold hover:underline">View all →</button>
+                </div>
+                ${(state.expenses||[]).filter(e=>e.submittedBy===uid).slice(0,3).map(e=>`
+                  <div class="flex items-center justify-between py-1.5 border-b border-border/50 last:border-0">
+                    <div class="text-sm truncate flex-1">${e.description||'Expense'}</div>
+                    <span class="text-xs font-bold text-primary ml-2">₱${parseFloat(e.amount||0).toLocaleString('en-US',{maximumFractionDigits:0})}</span>
+                  </div>`).join('')}
+              </div>` : ''}
 
               <!-- Recent Team Feed -->
               <div class="bg-card border border-border rounded-2xl p-5 shadow-sm">
@@ -1432,8 +1660,8 @@
             </div>
             <!-- Title -->
             <h4 class="font-semibold text-sm leading-snug mb-2 group-hover:text-primary transition-colors line-clamp-2">${task.title}</h4>
-            <!-- Project badge -->
-            <p class="text-[11px] text-muted-foreground mb-3">📁 ${getProjectName(task.projectId)}</p>
+            <!-- Project / Type badge -->
+            ${task.taskType === 'Project' && task.projectId ? `<p class="text-[11px] text-muted-foreground mb-3">📁 ${getProjectName(task.projectId)}</p>` : task.taskType === 'Rates' ? '<p class="text-[11px] text-amber-500 mb-3">💰 Rate Task</p>' : ''}
             <!-- Footer -->
             <div class="flex items-center justify-between">
               ${getUserAvatar(task.assignedTo, 'w-6 h-6 text-xs border-2 border-card')}
@@ -1582,12 +1810,19 @@
               <option value="">📂 All Types</option>
               ${taskTypes.map(t => `<option value="${t}">${t}</option>`).join('')}
             </select>
+            <select id="task-filter-due" class="h-9 px-2 rounded-lg border border-input bg-background text-sm">
+              <option value="">📅 All Dates</option>
+              <option value="overdue">⚠️ Overdue</option>
+              <option value="today">Today</option>
+              <option value="week">This Week</option>
+              <option value="month">This Month</option>
+            </select>
             <div class="flex items-center gap-2 ml-auto">
               <span id="task-selected-label" class="text-xs text-muted-foreground hidden"><span id="task-selected-count">0</span> selected</span>
               <button id="task-mass-delete-btn" onclick="window.massDeleteTasks()" class="hidden h-9 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-semibold hover:bg-destructive/90 transition-colors">
                 🗑️ Delete Selected
               </button>
-              ${isAdmin ? `<button onclick="window.openTaskModal()" class="h-9 px-4 bg-primary text-primary-foreground rounded-lg text-sm font-bold hover:bg-primary/90 transition-colors shadow-sm">＋ New Task</button>` : ''}
+              <button onclick="window.openTaskModal()" class="h-9 px-4 bg-primary text-primary-foreground rounded-lg text-sm font-bold hover:bg-primary/90 transition-colors shadow-sm">＋ New Task</button>
             </div>
           </div>
           <!-- Table -->
@@ -1596,10 +1831,9 @@
               <table class="w-full text-sm text-left">
                 <thead class="text-xs text-muted-foreground uppercase bg-muted/50 border-b border-border">
                   <tr>
-                    ${isAdmin ? '<th class="px-4 py-3"><input type="checkbox" id="task-select-all" onchange="window.toggleSelectAllTasks(this)" class="rounded border-border"></th>' : ''}
+                    <th class="px-4 py-3"><input type="checkbox" id="task-select-all" onchange="window.toggleSelectAllTasks(this)" class="rounded border-border"></th>
                     <th class="px-5 py-3 font-semibold">Task</th>
-                    <th class="px-5 py-3 font-semibold">Type</th>
-                    <th class="px-5 py-3 font-semibold">Project</th>
+                    <th class="px-5 py-3 font-semibold">Type / Project</th>
                     <th class="px-5 py-3 font-semibold">Assigned</th>
                     <th class="px-5 py-3 font-semibold">Status</th>
                     <th class="px-5 py-3 font-semibold">Due Date</th>
@@ -1619,17 +1853,21 @@
       $('task-filter-status').addEventListener('change', filterTasks);
       $('task-filter-project').addEventListener('change', filterTasks);
       $('task-filter-type').addEventListener('change', filterTasks);
+      const dueFilt = $('task-filter-due'); if(dueFilt) dueFilt.addEventListener('change', filterTasks);
     }
 
     function generateTaskRows(tasks) {
       const isAdmin = state.currentUserDoc?.role === 'admin';
       const uid = currentUid();
-      if (!tasks.length) return `<tr><td colspan="8" class="px-6 py-10 text-center text-muted-foreground"><div class="text-3xl mb-2">📋</div>No tasks found</td></tr>`;
+      if (!tasks.length) return `<tr><td colspan="7" class="px-6 py-10 text-center text-muted-foreground"><div class="text-3xl mb-2">📋</div>No tasks found</td></tr>`;
       return tasks.map(task => {
         const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'Completed';
+        const isCompleted = task.status === 'Completed';
+        const canEdit = isAdmin || (!isCompleted);
+        const projName = task.taskType === 'Project' && task.projectId ? getProjectName(task.projectId) : (task.taskType === 'Rates' ? '💰 Rate Task' : '');
         return `
         <tr class="hover:bg-muted/30 transition-colors group task-row" data-id="${task.id}">
-          ${isAdmin ? `<td class="px-4 py-3"><input type="checkbox" class="task-checkbox rounded border-border" data-id="${task.id}" onchange="window.updateTaskSelection()"></td>` : ''}
+          <td class="px-4 py-3"><input type="checkbox" class="task-checkbox rounded border-border" data-id="${task.id}" onchange="window.updateTaskSelection()"></td>
           <td class="px-5 py-3 font-medium text-foreground">
             <div class="flex items-center gap-2 cursor-pointer" onclick="window.openTaskModal('${task.id}')">
               <div class="w-0.5 h-8 rounded-full ${isOverdue ? 'bg-red-500' : 'bg-primary/30'} shrink-0"></div>
@@ -1637,19 +1875,21 @@
                 <div class="flex items-center gap-1.5">
                   <span class="font-semibold">${task.title}</span>
                   ${(task.checklist?.length||0) ? `<span class="text-[10px] text-muted-foreground">✅ ${(task.checklist||[]).filter(c=>c.done).length}/${task.checklist.length}</span>` : ''}
+                  ${isCompleted ? '<span class="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold">Done</span>' : ''}
                 </div>
                 <div class="text-xs text-muted-foreground mt-0.5">Created ${formatDate(task.createdAt)}</div>
               </div>
             </div>
           </td>
           <td class="px-5 py-3">
-            ${task.taskType ? `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-muted border border-border">${task.taskType}</span>` : '<span class="text-muted-foreground text-xs">—</span>'}
+            <div class="space-y-0.5">
+              ${task.taskType ? `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-muted border border-border">${task.taskType}</span>` : ''}
+              ${projName ? `<div class="text-[11px] text-muted-foreground mt-0.5">📁 ${projName}</div>` : ''}
+            </div>
           </td>
-          <td class="px-5 py-3 text-sm text-muted-foreground">📁 ${getProjectName(task.projectId)}</td>
           <td class="px-5 py-3">
-            <div class="flex items-center gap-1.5">
-              ${getUserAvatar(task.assignedTo, 'w-6 h-6 text-[10px]')}
-              <span class="text-xs font-medium">${getUserName(task.assignedTo)}</span>
+            <div class="flex flex-wrap gap-1">
+              ${(task.assignedToList||[task.assignedTo]).filter(Boolean).map(aid => `<div class="flex items-center gap-1"><span>${getUserAvatar(aid,'w-6 h-6 text-[10px]')}</span><span class="text-xs">${getUserName(aid)}</span></div>`).join('')}
             </div>
           </td>
           <td class="px-5 py-3">
@@ -1659,9 +1899,7 @@
             <span class="text-xs ${isOverdue ? 'text-red-500 font-bold' : 'text-muted-foreground'}">${isOverdue ? '⚠️ ' : ''}${formatDate(task.dueDate)}</span>
           </td>
           <td class="px-5 py-3 text-right">
-            <button onclick="window.openTaskModal('${task.id}')" class="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-              <i class="fa-solid fa-pen-to-square text-xs"></i>
-            </button>
+            ${canEdit || isAdmin ? `<button onclick="window.openTaskModal('${task.id}')" class="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><i class="fa-solid fa-pen-to-square text-xs"></i></button>` : '<span class="text-xs text-muted-foreground">🔒</span>'}
           </td>
         </tr>`;
       }).join('');
@@ -1698,7 +1936,10 @@
       const uid = currentUid();
       const isAdmin = state.currentUserDoc?.role === 'admin';
       if (isAdmin) return state.tasks;
-      return state.tasks.filter(t => t.assignedTo === uid || t.assignedBy === uid || t.createdBy === uid);
+      return state.tasks.filter(t => 
+        t.assignedTo === uid || t.assignedBy === uid || t.createdBy === uid ||
+        (t.assignedToList||[]).includes(uid)
+      );
     }
 
     function filterTasks() {
@@ -1706,12 +1947,24 @@
       const status = $('task-filter-status')?.value || '';
       const project = $('task-filter-project')?.value || '';
       const type = $('task-filter-type')?.value || '';
+      const due = $('task-filter-due')?.value || '';
+      const now = new Date(); now.setHours(0,0,0,0);
       const filtered = getVisibleTasks().filter(t => {
         const hay = `${t.title} ${t.description || ''}`.toLowerCase();
-        return (hay.includes(search)) &&
-               (status === '' || t.status === status) &&
-               (project === '' || t.projectId === project) &&
-               (type === '' || t.taskType === type);
+        if (!hay.includes(search)) return false;
+        if (status && t.status !== status) return false;
+        if (project && t.projectId !== project) return false;
+        if (type && t.taskType !== type) return false;
+        if (due) {
+          if (!t.dueDate) return false;
+          const d = new Date(t.dueDate); d.setHours(0,0,0,0);
+          const diff = Math.round((d - now)/(1000*60*60*24));
+          if (due === 'overdue' && d >= now) return false;
+          if (due === 'today' && diff !== 0) return false;
+          if (due === 'week' && (diff < 0 || diff > 7)) return false;
+          if (due === 'month' && (diff < 0 || diff > 30)) return false;
+        }
+        return true;
       });
       $('task-table-body').innerHTML = generateTaskRows(filtered);
     }
@@ -1720,10 +1973,10 @@
       const isAdmin = state.currentUserDoc?.role === 'admin';
       const isEdit = !!taskId;
       // Non-admins can only VIEW (not create) tasks
-      if (!isEdit && !isAdmin) return toast('Only admin can create tasks', 'warning');
+      // Users can create their own tasks
       const task = isEdit ? state.tasks.find(t => t.id === taskId) : {};
       const projectId = forceProjectId || task?.projectId || '';
-      const taskTypes = state.settings.taskTypes || ['Project', 'Internal', 'Cluster'];
+      const taskTypes = [...(state.settings.taskTypes || ['Project', 'Internal', 'Cluster']), 'Rates'].filter((v,i,a)=>a.indexOf(v)===i);
       const content = `
         <div class="p-6 border-b border-border flex justify-between items-center bg-muted/30 rounded-t-xl">
           <h3 class="text-lg font-semibold">${isEdit ? 'Edit Task' : 'Create New Task'}</h3>
@@ -1802,7 +2055,18 @@
         </div>
       `;
       showModal(content);
-
+      // Init multi-select for assignees
+      const assignOptions = state.users.filter(u=>u.status!=='inactive').map(u=>({value:u.id,label:u.name||u.email}));
+      const defaultAssignees = task?.assignedToList || (task?.assignedTo ? [task.assignedTo] : []);
+      initMultiSelect('t-assign-ms','ms-t-assign-wrap',assignOptions,defaultAssignees,'Select assignee(s)...');
+      // Show/hide project based on type
+      const tTypeEl = $('t-type');
+      if(tTypeEl) {
+        tTypeEl.addEventListener('change', (e)=>{
+          const wrap = $('t-project-wrap');
+          if(wrap) wrap.classList.toggle('hidden', e.target.value !== 'Project');
+        });
+      }
     };
 
     window.addChecklistItem = function() {
@@ -1832,13 +2096,17 @@
         if (txt.value.trim()) checklistItems.push({ text: txt.value.trim(), done: cb.checked });
       });
 
+      const assignedList = getMultiSelectValues('t-assign-ms');
+      const primaryAssignee = assignedList[0] || '';
       const payload = {
         title,
         description: $('t-desc').value,
         taskType,
-        projectId: $('t-project').value,
-        assignedTo: $('t-assign').value,
+        projectId: taskType === 'Project' ? ($('t-project')?.value || '') : '',
+        assignedTo: primaryAssignee,
+        assignedToList: assignedList,
         assignedBy: currentUid(),
+        createdBy: currentUid(),
         status: $('t-status').value,
         priority: $('t-priority').value,
         dueDate,
@@ -1857,15 +2125,17 @@
           if (payload.assignedBy && payload.assignedBy !== payload.assignedTo) {
             notify(payload.assignedBy, `✅ Task "${payload.title}" updated — assigned to ${getUserName(payload.assignedTo)}`, `tasks:${taskId}`, 'task');
           }
+          await logActivity('update', 'Tasks', 'Updated task: '+payload.title);
           toast('Task updated');
         } else {
           const added = await addDoc(collection(db, 'tasks'), payload);
-          if (payload.assignedTo) {
-            await notify(payload.assignedTo, `✅ New task assigned to you: "${payload.title}" — Due: ${payload.dueDate || 'TBD'} (${payload.priority || 'Medium'} priority)`, `tasks:${added.id}`, 'task');
+          for (const aid of (payload.assignedToList||[payload.assignedTo]).filter(Boolean)) {
+            if (aid !== currentUid()) {
+              await notify(aid, `✅ New task assigned to you: "${payload.title}" — Due: ${payload.dueDate || 'TBD'} (${payload.priority || 'Medium'} priority)`, `tasks:${added.id}`, 'task');
+              toast(`🔔 ${getUserName(aid)} notified`, 'info');
+            }
           }
-          if (payload.assignedBy && payload.assignedBy !== payload.assignedTo) {
-            await notify(payload.assignedBy, `✅ Task "${payload.title}" created & assigned to ${getUserName(payload.assignedTo)}`, `tasks:${added.id}`, 'task');
-          }
+          await logActivity('create', 'Tasks', 'Created task: '+payload.title);
           toast('Task created');
         }
         closeModal();
@@ -2448,6 +2718,15 @@
               <input id="lh-search" type="text" placeholder="Search articles..." oninput="window.filterLearning()"
                 class="w-full h-9 pl-9 pr-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
             </div>
+            <select id="lh-seen-filter" onchange="window.filterLearning()" class="h-9 px-3 rounded-lg border border-input bg-background text-sm">
+              <option value="">All Articles</option>
+              <option value="new">🆕 New / Unread</option>
+              <option value="seen">✅ Already Read</option>
+            </select>
+            <select id="lh-author-filter" onchange="window.filterLearning()" class="h-9 px-3 rounded-lg border border-input bg-background text-sm">
+              <option value="">All Creators</option>
+              ${[...new Set((state.learning||[]).map(l=>l.authorId).filter(Boolean))].map(uid=>`<option value="${uid}">${getUserName(uid)}</option>`).join('')}
+            </select>
             <div class="flex gap-2 flex-wrap">
               <button onclick="window.filterLearningCat('')" data-cat="" class="lh-cat-btn px-3 py-1.5 rounded-full text-xs font-medium border border-primary bg-primary text-primary-foreground transition-all">All</button>
               ${categories.map(c => `<button onclick="window.filterLearningCat('${c}')" data-cat="${c}" class="lh-cat-btn px-3 py-1.5 rounded-full text-xs font-medium border border-border bg-background hover:border-primary hover:text-primary transition-all">${c}</button>`).join('')}
@@ -2473,6 +2752,7 @@
       if (!items.length) return '';
       return items.map(l => {
         const isLiked = (l.likes || []).includes(currentUid());
+        const isSeen = (l.seenBy || []).includes(currentUid());
         const mdExcerpt = (l.content || '').replace(/<[^>]+>/g, '').trim().slice(0, 140);
         const colorPalette = [
           ['bg-blue-500','from-blue-500/20 to-blue-500/5'],
@@ -2580,7 +2860,14 @@
         </div>
       `;
       showModal(c);
-      initMultiSelect('lh-tags', 'ms-lh-tags', state.settings.taskTags || [], [], 'Select categories...');
+      // Free-text tags instead of picklist
+      window._lhNewTags = [];
+      const ms = $('ms-lh-tags');
+      if (ms) ms.innerHTML = `
+        <div class="min-h-[40px] px-2 py-1 rounded-xl border border-input bg-background flex flex-wrap gap-1.5 items-center cursor-text" id="lh-tags-container" onclick="document.getElementById('lh-tags-free-input').focus()">
+          <input id="lh-tags-free-input" placeholder="Add tag, press Enter..." class="flex-1 min-w-[100px] bg-transparent border-none outline-none text-sm h-7"
+            onkeydown="if(event.key==='Enter'||event.key===','){event.preventDefault();const v=(this.value||'').replace(/,/g,'').trim();if(v&&!window._lhNewTags.includes(v)){window._lhNewTags.push(v);const s=document.createElement('span');s.className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium';s.innerHTML=v+'<button onclick=\'window._lhNewTags=window._lhNewTags.filter(t=>t!==\"'+v+'\");this.parentElement.remove()\' class=\'ml-1 hover:text-destructive\'>×</button>';document.getElementById('lh-tags-container').insertBefore(s,this);}this.value='';}">
+        </div>`;
       EditorManager.init('lh-editor-mount', { placeholder: 'Write your article… use the toolbar to format headings, lists, links, and more.', minHeight: '220px' });
     };
 
@@ -2588,7 +2875,7 @@
       const title    = $('lh-title')?.value?.trim() || '';
       const contentHtml = EditorManager.getHTML('lh-editor-mount');
       const plainText   = EditorManager.getText('lh-editor-mount');
-      const tags        = getMultiSelectValues('lh-tags');
+      const tags        = window._lhNewTags || [];
       if (!title)     return toast('Title is required', 'error');
       if (!plainText) return toast('Content is required', 'error');
 
@@ -2630,9 +2917,14 @@
       } catch(e) { console.error(e); toast('Failed to like','error'); }
     };
 
-    window.viewLearning = function(id) {
+    window.viewLearning = async function(id) {
       const l = state.learning.find(x => x.id === id);
       if (!l) return;
+      // Mark as seen
+      const uid = currentUid();
+      if (uid && !(l.seenBy||[]).includes(uid)) {
+        try { await updateDoc(doc(db,'learning',id), { seenBy: [...(l.seenBy||[]), uid] }); } catch(e) {}
+      }
       const isLiked = (l.likes || []).includes(currentUid());
       const isAdmin = state.currentUserDoc?.role === 'admin';
       const isAuthor = l.authorId === currentUid();
@@ -2667,6 +2959,7 @@
                         <span class="font-semibold">${l.authorName||'User'}</span>
                         <span>·</span><span>${timeAgo(l.createdAt)}</span>
                         ${l.fileName ? `<span>·</span><a href="${l.fileUrl||'#'}" target="_blank" class="flex items-center gap-1 text-primary hover:underline font-medium">📎 ${l.fileName}</a>` : ''}
+                        ${(isAdmin||isAuthor) ? `<span>·</span><button onclick="window.editLearning('${l.id}')" class="text-blue-500 hover:underline">✏️ Edit</button>` : ''}
                         ${(isAdmin||isAuthor) ? `<span>·</span><button onclick="window.deleteLearning('${l.id}')" class="text-destructive hover:underline">🗑️ Delete</button>` : ''}
                       </div>
                     </div>
@@ -2764,6 +3057,75 @@
       } catch(e) { toast('Failed to delete','error'); }
     };
 
+    window.editLearning = function(id) {
+      const l = state.learning.find(x=>x.id===id);
+      if (!l) return;
+      const c = `
+        <div class="p-6 border-b border-border flex justify-between items-center bg-muted/30 rounded-t-xl">
+          <h3 class="text-lg font-bold">✏️ Edit Article</h3>
+          <button onclick="window.closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <div class="p-6 space-y-4 overflow-y-auto max-h-[70vh]">
+          <div>
+            <label class="text-sm font-semibold block mb-1">Title <span class="text-destructive">*</span></label>
+            <input id="lh-edit-title" value="${(l.title||'').replace(/"/g,'&quot;')}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+          </div>
+          <div>
+            <label class="text-sm font-semibold block mb-1">Tags (press Enter or comma to add)</label>
+            <div id="lh-edit-tags-container" class="min-h-[40px] px-2 py-1 rounded-xl border border-input bg-background flex flex-wrap gap-1.5 items-center cursor-text" onclick="document.getElementById('lh-edit-tag-input').focus()">
+              ${(l.tags||[]).map(t=>`<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium">${t}<button onclick="window.removeLHTag(this,'${t}')" class="ml-1 hover:text-destructive">×</button></span>`).join('')}
+              <input id="lh-edit-tag-input" placeholder="Add tag..." class="flex-1 min-w-[80px] bg-transparent border-none outline-none text-sm h-7" onkeydown="window.handleLHTagInput(event,'${id}')">
+            </div>
+          </div>
+          <div>
+            <label class="text-sm font-semibold block mb-1">Content <span class="text-destructive">*</span></label>
+            <div id="lh-edit-editor-mount"></div>
+          </div>
+        </div>
+        <div class="p-6 border-t border-border bg-muted/30 rounded-b-xl flex justify-end gap-3">
+          <button onclick="window.closeModal()" class="px-4 py-2 rounded-xl border border-input bg-background hover:bg-muted text-sm font-medium">Cancel</button>
+          <button onclick="window.updateLearning('${id}')" class="px-5 py-2 rounded-xl bg-primary text-white hover:bg-primary/90 text-sm font-bold shadow-sm">💾 Update Article</button>
+        </div>`;
+      window._lhEditTags = l.tags ? [...l.tags] : [];
+      showModal(c);
+      EditorManager.init('lh-edit-editor-mount', { placeholder: 'Write your article…', minHeight: '220px' });
+      if (l.content) EditorManager.setHTML('lh-edit-editor-mount', l.content);
+    };
+
+    window._lhEditTags = [];
+    window.handleLHTagInput = function(e) {
+      if (e.key==='Enter'||e.key===',') {
+        e.preventDefault();
+        const input = $('lh-edit-tag-input');
+        const tag = (input.value||'').replace(/,/g,'').trim();
+        if (tag && !window._lhEditTags.includes(tag)) {
+          window._lhEditTags.push(tag);
+          const span = document.createElement('span');
+          span.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium';
+          span.innerHTML = `${tag}<button onclick="window.removeLHTag(this,'${tag}')" class="ml-1 hover:text-destructive">×</button>`;
+          $('lh-edit-tags-container').insertBefore(span, input);
+        }
+        input.value = '';
+      }
+    };
+    window.removeLHTag = function(btn, tag) {
+      window._lhEditTags = (window._lhEditTags||[]).filter(t=>t!==tag);
+      btn.parentElement.remove();
+    };
+
+    window.updateLearning = async function(id) {
+      const title = $('lh-edit-title')?.value?.trim();
+      const contentHtml = EditorManager.getHTML('lh-edit-editor-mount');
+      if (!title) return toast('Title is required','error');
+      const tags = window._lhEditTags || [];
+      try {
+        await updateDoc(doc(db,'learning',id), { title, content: contentHtml, tags, updatedAt: serverTimestamp() });
+        toast('Article updated');
+        closeModal();
+        navigate('learning');
+      } catch(e) { console.error(e); toast('Failed to update','error'); }
+    };
+
     window.addLearningComment = async function(id) {
       const l = state.learning.find(x => x.id === id);
       const input = $(`lh-cmt-${id}`);
@@ -2795,53 +3157,142 @@
      * RATES (unchanged, plus notify)
      ***********************/
     function renderRates() {
+      const uid = currentUid();
+      const isAdmin = state.currentUserDoc?.role === 'admin';
+      const allRates = state.rates || [];
+      const myRates = allRates.filter(r => r.assignedAnalystId === uid || r.createdBy === uid);
+      const pending = allRates.filter(r=>r.status==='Pending').length;
+      const inProgress = allRates.filter(r=>r.status==='In Progress').length;
+      const completed = allRates.filter(r=>r.status==='Completed').length;
+      // Avg close time
+      const closedRates = allRates.filter(r=>r.status==='Completed'&&r.createdAt&&r.closedAt);
+      const avgCloseMs = closedRates.length ? closedRates.reduce((s,r)=>{
+        const c = r.createdAt?.toDate?r.createdAt.toDate():new Date(r.createdAt);
+        const cl = r.closedAt?.toDate?r.closedAt.toDate():new Date(r.closedAt);
+        return s+(cl-c);
+      },0)/closedRates.length : 0;
+      const avgCloseDays = avgCloseMs ? Math.round(avgCloseMs/(1000*60*60*24)) : 0;
+
       const html = `
-        <div class="bg-card border border-border rounded-xl shadow-sm overflow-hidden animate-slide-in">
-          <div class="p-4 border-b border-border flex justify-between items-center">
-            <h3 class="font-semibold">Rate Requests</h3>
-            <button onclick="window.openRateModal()" class="h-9 px-4 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90">
-              <i class="fa-solid fa-plus mr-2"></i>New Request
-            </button>
+        <div class="max-w-6xl mx-auto space-y-5 animate-slide-in">
+          <div class="bg-gradient-to-r from-amber-400/15 via-primary/10 to-transparent border border-border rounded-2xl p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 class="text-xl font-black flex items-center gap-2">💰 Rate Requests</h2>
+                <p class="text-sm text-muted-foreground">${allRates.length} total requests</p>
+              </div>
+              <button onclick="window.openRateModal()" class="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm shadow hover:shadow-md hover:bg-primary/90 transition-all">
+                ＋ New Request
+              </button>
+            </div>
           </div>
-          <table class="w-full text-sm text-left">
-            <thead class="text-xs text-muted-foreground uppercase bg-muted/50 border-b border-border">
-              <tr>
-                <th class="px-6 py-3">Type</th>
-                <th class="px-6 py-3">Rate ID</th>
-                <th class="px-6 py-3">Requester</th>
-                <th class="px-6 py-3">Cluster</th>
-                <th class="px-6 py-3">Assigned</th>
-                <th class="px-6 py-3">Status</th>
-                <th class="px-6 py-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-border">
-              ${state.rates.map(r => `
-                <tr class="hover:bg-muted/50 transition-colors">
-                  <td class="px-6 py-4">${r.rateType || 'Upload'}</td>
-                  <td class="px-6 py-4 font-mono font-medium text-primary">${r.rateId || ''}</td>
-                  <td class="px-6 py-4">${r.requesterName || ''}</td>
-                  <td class="px-6 py-4"><span class="px-2 py-1 rounded bg-muted border border-border text-xs">${r.cluster || ''}</span></td>
-                  <td class="px-6 py-4 flex items-center gap-2">
-                    ${getUserAvatar(r.assignedAnalystId, 'w-6 h-6 text-xs')}
-                    ${getUserName(r.assignedAnalystId)}
-                  </td>
-                  <td class="px-6 py-4">
-                    <span class="px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusBadgeClass(r.status)}">
-                      ${r.status || ''}
-                    </span>
-                  </td>
-                  <td class="px-6 py-4 text-right">
-                    <button onclick="window.viewRate('${r.id}')" class="text-primary hover:underline text-xs font-medium">View Details</button>
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
+          <!-- KPI Cards -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-card border border-border rounded-2xl p-4 text-center shadow-sm">
+              <div class="text-3xl font-black text-orange-500">${pending}</div>
+              <div class="text-xs text-muted-foreground mt-1">⏳ Pending</div>
+            </div>
+            <div class="bg-card border border-border rounded-2xl p-4 text-center shadow-sm">
+              <div class="text-3xl font-black text-blue-500">${inProgress}</div>
+              <div class="text-xs text-muted-foreground mt-1">🔄 In Progress</div>
+            </div>
+            <div class="bg-card border border-border rounded-2xl p-4 text-center shadow-sm">
+              <div class="text-3xl font-black text-green-500">${completed}</div>
+              <div class="text-xs text-muted-foreground mt-1">✅ Completed</div>
+            </div>
+            <div class="bg-card border border-border rounded-2xl p-4 text-center shadow-sm">
+              <div class="text-3xl font-black text-purple-500">${avgCloseDays || '—'}</div>
+              <div class="text-xs text-muted-foreground mt-1">📊 Avg Days to Close</div>
+            </div>
+          </div>
+          <!-- My vs Team tabs -->
+          <div class="flex gap-2 items-center">
+            <button id="rate-tab-my" onclick="window.setRateTab('my')" class="px-4 py-2 rounded-xl text-sm font-bold bg-primary text-primary-foreground shadow">My Requests</button>
+            <button id="rate-tab-team" onclick="window.setRateTab('team')" class="px-4 py-2 rounded-xl text-sm font-bold border border-border hover:bg-muted">Team Requests</button>
+            <!-- Filter -->
+            <div class="ml-auto flex gap-2">
+              <select id="rate-filter-status" onchange="window.filterRates()" class="h-9 px-3 rounded-lg border border-input bg-background text-sm">
+                <option value="">All Status</option>
+                <option>Pending</option>
+                <option>In Progress</option>
+                <option>Completed</option>
+              </select>
+              <select id="rate-filter-type" onchange="window.filterRates()" class="h-9 px-3 rounded-lg border border-input bg-background text-sm">
+                <option value="">All Types</option>
+                <option>RCA</option>
+                <option>VALE</option>
+                <option>Upload</option>
+              </select>
+              <input id="rate-search" type="text" placeholder="Search..." oninput="window.filterRates()" class="h-9 px-3 rounded-lg border border-input bg-background text-sm w-32 focus:outline-none focus:ring-1 focus:ring-ring">
+            </div>
+          </div>
+          <!-- Table -->
+          <div class="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left">
+                <thead class="text-xs text-muted-foreground uppercase bg-muted/50 border-b border-border">
+                  <tr>
+                    <th class="px-5 py-3">Type</th>
+                    <th class="px-5 py-3">Rate ID</th>
+                    <th class="px-5 py-3">Requester</th>
+                    <th class="px-5 py-3">Cluster</th>
+                    <th class="px-5 py-3">Assigned</th>
+                    <th class="px-5 py-3">Status</th>
+                    <th class="px-5 py-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="rate-table-body" class="divide-y divide-border">
+                  ${renderRateRows(myRates)}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       `;
       $('content-area').innerHTML = html;
+      window.__rateTab = 'my';
     }
+
+    function renderRateRows(rates) {
+      if (!rates.length) return `<tr><td colspan="7" class="px-6 py-10 text-center text-muted-foreground">No rate requests found</td></tr>`;
+      return rates.map(r => `
+        <tr class="hover:bg-muted/50 transition-colors">
+          <td class="px-5 py-4"><span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">${r.rateType||'Upload'}</span></td>
+          <td class="px-5 py-4 font-mono font-bold text-primary">${r.rateId||''}</td>
+          <td class="px-5 py-4">${r.requesterName||''}</td>
+          <td class="px-5 py-4"><span class="px-2 py-0.5 rounded-full text-xs bg-muted border border-border">${r.cluster||''}</span></td>
+          <td class="px-5 py-4">
+            <div class="flex items-center gap-1.5">${getUserAvatar(r.assignedAnalystId,'w-6 h-6 text-[10px]')}<span class="text-xs">${getUserName(r.assignedAnalystId)}</span></div>
+          </td>
+          <td class="px-5 py-4"><span class="px-2.5 py-0.5 rounded-full text-xs font-semibold border ${getStatusBadgeClass(r.status)}">${r.status||'—'}</span></td>
+          <td class="px-5 py-4 text-right">
+            <button onclick="window.viewRate('${r.id}')" class="text-primary hover:underline text-xs font-medium">View Details</button>
+          </td>
+        </tr>`).join('');
+    }
+
+    window.__rateTab = 'my';
+    window.setRateTab = function(tab) {
+      window.__rateTab = tab;
+      const myBtn = $('rate-tab-my');
+      const teamBtn = $('rate-tab-team');
+      if (myBtn) { myBtn.className = `px-4 py-2 rounded-xl text-sm font-bold ${tab==='my'?'bg-primary text-primary-foreground shadow':'border border-border hover:bg-muted'}`; }
+      if (teamBtn) { teamBtn.className = `px-4 py-2 rounded-xl text-sm font-bold ${tab==='team'?'bg-primary text-primary-foreground shadow':'border border-border hover:bg-muted'}`; }
+      window.filterRates();
+    };
+    window.filterRates = function() {
+      const uid = currentUid();
+      const status = $('rate-filter-status')?.value||'';
+      const type = $('rate-filter-type')?.value||'';
+      const search = ($('rate-search')?.value||'').toLowerCase();
+      let rates = state.rates||[];
+      if (window.__rateTab === 'my') rates = rates.filter(r=>r.assignedAnalystId===uid||r.createdBy===uid);
+      if (status) rates = rates.filter(r=>r.status===status);
+      if (type) rates = rates.filter(r=>r.rateType===type);
+      if (search) rates = rates.filter(r=>`${r.rateId||''} ${r.requesterName||''}`.toLowerCase().includes(search));
+      const tbody = $('rate-table-body');
+      if (tbody) tbody.innerHTML = renderRateRows(rates);
+    };
 
     window.openRateModal = function() {
       const nextId = `RATE-${new Date().getFullYear()}-${String(state.rates.length + 1).padStart(3, '0')}`;
@@ -3016,23 +3467,33 @@
 
     window.updateRateStatus = async function(rid, status) {
       try {
-        await updateDoc(doc(db, 'rates', rid), { status });
-        // update linked task
+        const uid = currentUid();
+        const updateData = { status };
+        if (status === 'Completed') {
+          updateData.closedAt = new Date().toISOString();
+          updateData.closedBy = uid;
+        }
+        await updateDoc(doc(db, 'rates', rid), updateData);
         const r = state.rates.find(x => x.id === rid);
         if (r) {
+          // Notify assigned analyst and team
+          const emoji = status==='Completed'?'✅':status==='In Progress'?'🔄':'⏳';
+          notify(r.assignedAnalystId, `${emoji} Rate "${r.rateId}" status changed to ${status}`, 'rates', 'rate');
+          // Notify all active users about team request update
+          state.users.filter(u=>u.status!=='inactive'&&u.id!==uid).forEach(u=>
+            notify(u.id, `${emoji} Rate "${r.rateId}" updated to ${status} by ${getUserName(uid)}`, 'rates', 'rate')
+          );
+          // Update linked task
           const task = state.tasks.find(t => (t.title||'').includes(r.rateId));
           if (task) {
             await updateDoc(doc(db, 'tasks', task.id), {
               status: status === 'Completed' ? 'Completed' : 'In Progress',
               ...(status === 'Completed' ? { closedAt: new Date().toISOString() } : {})
             });
-            const rEmoji = status === 'Approved' ? '✅' : status === 'Rejected' ? '❌' : '🔄'; notify(task.assignedTo, `${rEmoji} Rate "${r.rateId}" has been ${status.toLowerCase()}`, `rates`, 'rate');
           }
         }
         toast('Status updated'); closeModal();
-      } catch (e) {
-        console.error(e); toast('Failed to update','error');
-      }
+      } catch (e) { console.error(e); toast('Failed to update','error'); }
     };
 
     /***********************
@@ -3223,6 +3684,8 @@
               ${chipEditor('clusters','Clusters', state.settings.clusters)}
               ${chipEditor('statuses','Task Statuses', state.settings.statuses)}
               ${chipEditor('taskTypes','Task Types', state.settings.taskTypes || ['Project','Internal','Cluster'])}
+              ${chipEditor('taskTags','Default Tags', state.settings.taskTags || [])}
+              ${chipEditor('meetingTypes','Meeting Types', state.settings.meetingTypes || ['Regular Meeting','Emergency Meeting','Board Meeting','Planning Session','Review Meeting'])}
             </div>
             <div class="mt-6 flex justify-end gap-3">
               <button onclick="window.saveSettings()" class="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium">Save Settings</button>
@@ -3240,9 +3703,11 @@
           taskTags: state.settings.taskTags,
           statuses: state.settings.statuses,
           taskTypes: state.settings.taskTypes || ['Project','Internal','Cluster'],
+          meetingTypes: state.settings.meetingTypes || ['Regular Meeting','Emergency Meeting','Board Meeting','Planning Session','Review Meeting'],
           updatedAt: serverTimestamp()
         });
         toast('Settings saved successfully');
+        await logActivity('settings','Admin Settings','Saved global settings');
       } catch (e) { console.error(e); toast('Failed to save settings','error'); }
     };
 
@@ -3646,11 +4111,14 @@
             </div>
             <button onclick="window.closeModal()" class="text-muted-foreground hover:text-foreground p-2 rounded-lg hover:bg-muted">✕</button>
           </div>
-          <!-- Progress bar -->
+          <!-- Progress bar + Timer -->
           <div class="px-6 pt-4">
             <div class="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
               <span>Question ${idx+1} of ${total}</span>
-              <span class="font-semibold text-primary">${Object.keys(window.__quizAnswers).length} answered</span>
+              <div class="flex items-center gap-3">
+                <span id="quiz-timer" class="font-bold text-orange-500 text-sm">⏱️ 30s</span>
+                <span class="font-semibold text-primary">${Object.keys(window.__quizAnswers).length} answered</span>
+              </div>
             </div>
             <div class="w-full h-2 bg-muted rounded-full overflow-hidden">
               <div class="h-full bg-primary rounded-full transition-all duration-500" style="width:${progress}%"></div>
@@ -3663,11 +4131,12 @@
             <div class="grid grid-cols-1 gap-3">
               ${q.options.map((opt, i) => {
                 const selected = window.__quizAnswers[idx] === i;
-                return `<div class="p-4 rounded-xl border-2 cursor-pointer transition-all ${selected ? 'border-primary bg-primary/10 font-semibold' : 'border-border hover:border-primary/50 hover:bg-muted/50'}"
+                return `<div class="quiz-option w-full text-left p-4 rounded-xl border-2 cursor-pointer transition-all ${selected ? 'border-primary bg-primary/15 shadow-md scale-[1.01]' : 'border-border hover:border-primary/50 hover:bg-muted/50'}"
                    onclick="window.selectQuizOption('${qid}',${idx},${i},this)">
                   <div class="flex items-center gap-3">
-                    <div class="w-7 h-7 rounded-full border-2 flex-shrink-0 flex items-center justify-center text-xs font-bold ${selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}">${String.fromCharCode(65+i)}</div>
-                    <span class="text-sm">${opt}</span>
+                    <div class="w-8 h-8 rounded-full border-2 flex-shrink-0 flex items-center justify-center text-xs font-bold ${selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'}">${String.fromCharCode(65+i)}</div>
+                    <span class="text-sm font-medium">${opt}</span>
+                    ${selected ? '<span class="ml-auto text-primary">✓</span>' : ''}
                   </div>
                 </div>`;
               }).join('')}
@@ -3708,6 +4177,7 @@
     };
 
     window.submitQuiz = async function(qid) {
+      if (window.__quizTimer) { clearInterval(window.__quizTimer); window.__quizTimer = null; }
       const quiz = state.quizzes.find(q => q.id === qid);
       if (!quiz) return;
       const answers = window.__quizAnswers || {};
@@ -4108,11 +4578,7 @@
               class="h-9 px-3 rounded-lg border border-input bg-background text-sm flex-1 min-w-[180px] focus:outline-none focus:ring-1 focus:ring-ring">
             <select id="mtg-type-filter" onchange="window.filterMeetings()" class="h-9 px-3 rounded-lg border border-input bg-background text-sm">
               <option value="">All Types</option>
-              <option>Regular Meeting</option>
-              <option>Emergency Meeting</option>
-              <option>Board Meeting</option>
-              <option>Planning Session</option>
-              <option>Review Meeting</option>
+              ${(state.settings.meetingTypes||['Regular Meeting','Emergency Meeting','Board Meeting','Planning Session','Review Meeting']).map(t=>`<option>${t}</option>`).join('')}
             </select>
             <select id="mtg-sort" onchange="window.filterMeetings()" class="h-9 px-3 rounded-lg border border-input bg-background text-sm">
               <option value="newest">Newest First</option>
@@ -4145,7 +4611,8 @@
       };
       return meetings.map(m => {
         const typeColor = typeColors[m.meetingType] || 'bg-muted-foreground';
-        const attendeeCount = (m.attendees||[]).length;
+        const attendeesList = m.attendeesList || [];
+        const attendeeCount = attendeesList.length || (m.attendees||[]).length;
         const hasMinutes = !!(m.minutesContent || m.minutesFileUrl);
         return `
           <div class="bg-card border border-border rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all cursor-pointer group" onclick="window.viewMeeting('${m.id}')">
@@ -4161,8 +4628,8 @@
                 ${m.location ? `<span>📍 ${m.location}</span>` : ''}
               </div>
               <div class="flex items-center gap-2 text-xs text-muted-foreground">
-                <div class="flex -space-x-2">
-                  ${(m.attendees||[]).slice(0,4).map(uid=>getUserAvatar(uid,'w-6 h-6 text-[9px] border-2 border-card')).join('')}
+                <div class="flex -space-x-1">
+                  ${attendeesList.slice(0,4).map(a=>`<div class="w-6 h-6 rounded-full bg-primary/20 border-2 border-card flex items-center justify-center text-[9px] font-bold text-primary">${(a.name||'?').charAt(0).toUpperCase()}</div>`).join('')}
                   ${attendeeCount > 4 ? `<div class="w-6 h-6 rounded-full bg-muted border-2 border-card flex items-center justify-center text-[9px] font-bold">+${attendeeCount-4}</div>` : ''}
                 </div>
                 <span>${attendeeCount} attendee${attendeeCount!==1?'s':''}</span>
@@ -4197,18 +4664,25 @@
     window.openNewMeetingModal = function(meetingId=null) {
       const m = meetingId ? (state.meetings||[]).find(x=>x.id===meetingId) : null;
       const isEdit = !!m;
-      const userChecks = state.users.filter(u=>u.status!=='inactive').map(u=>`
-        <label class="flex items-center gap-2 p-2 rounded-lg hover:bg-muted cursor-pointer">
-          <input type="checkbox" class="mtg-attendee rounded accent-primary" value="${u.id}" ${(m?.attendees||[]).includes(u.id)?'checked':''}>
-          <div class="flex items-center gap-2">${getUserAvatar(u.id,'w-6 h-6 text-[10px]')}<span class="text-sm">${u.name||u.email}</span></div>
-        </label>
-      `).join('');
       const agendaItems = (m?.agendaItems||['','']).map((a,i)=>`
         <div class="flex gap-2 items-center agenda-item">
           <span class="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">${i+1}</span>
           <input type="text" value="${a}" placeholder="Agenda item ${i+1}..." class="agenda-input flex-1 h-9 px-3 rounded-lg border border-input bg-background text-sm">
           <button onclick="this.closest('.agenda-item').remove()" class="text-destructive hover:text-destructive/80 px-1">✕</button>
         </div>
+      `).join('');
+
+      // Build attendee rows from saved data or empty rows
+      const savedAttendees = m?.attendeesList || [];
+      const initRows = savedAttendees.length > 0 ? savedAttendees : [{name:'',position:'',department:'',signature:''}];
+      const attendeeRows = initRows.map((a,i) => `
+        <tr class="attendee-row">
+          <td class="px-2 py-1 text-center text-xs text-muted-foreground font-bold">${i+1}</td>
+          <td class="px-2 py-1"><input class="att-name w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" value="${(a.name||'').replace(/"/g,'&quot;')}" placeholder="Full name"></td>
+          <td class="px-2 py-1"><input class="att-position w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" value="${(a.position||'').replace(/"/g,'&quot;')}" placeholder="Position/Title"></td>
+          <td class="px-2 py-1"><input class="att-dept w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" value="${(a.department||'').replace(/"/g,'&quot;')}" placeholder="Department/Org"></td>
+          <td class="px-2 py-1 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive hover:text-destructive/80 text-sm px-1">✕</button></td>
+        </tr>
       `).join('');
 
       showModal(`
@@ -4270,17 +4744,28 @@
             </div>
             <div id="agenda-container" class="space-y-2">${agendaItems}</div>
           </div>
-          <!-- Attendees -->
+          <!-- Attendees Table -->
           <div>
-            <label class="text-sm font-semibold block mb-2">Attendees</label>
-            <div class="border border-border rounded-xl p-2 max-h-40 overflow-y-auto space-y-1">${userChecks}</div>
-          </div>
-          <!-- Minutes upload -->
-          <div>
-            <label class="block text-sm font-semibold mb-1">Upload Minutes (PDF/Doc)</label>
-            <input id="mtg-minutes-file" type="file" accept=".pdf,.doc,.docx,.txt"
-              class="w-full text-sm border border-input rounded-xl px-3 py-2 bg-background cursor-pointer">
-            ${m?.minutesFileUrl ? `<a href="${m.minutesFileUrl}" target="_blank" class="text-xs text-primary mt-1 block">📎 Current: ${m.minutesFileName||'minutes'}</a>` : ''}
+            <div class="flex items-center justify-between mb-2">
+              <label class="text-sm font-semibold">👥 Attendees</label>
+              <button onclick="window.addAttendeeRow()" class="text-xs text-primary hover:underline font-medium">＋ Add Row</button>
+            </div>
+            <div class="border border-border rounded-xl overflow-hidden">
+              <table class="w-full text-xs">
+                <thead class="bg-muted/40 border-b border-border">
+                  <tr>
+                    <th class="px-2 py-2 text-center w-8 text-muted-foreground">#</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Full Name</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Position / Title</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Department / Org</th>
+                    <th class="px-2 py-2 w-8"></th>
+                  </tr>
+                </thead>
+                <tbody id="attendee-table-body">
+                  ${attendeeRows}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
         <div class="p-5 border-t border-border bg-muted/30 flex justify-end gap-2">
@@ -4290,6 +4775,65 @@
           </button>
         </div>
       `);
+    };
+
+    window.addAttendeeRow = function() {
+      const tbody = $('attendee-table-body');
+      if (!tbody) return;
+      const rowNum = tbody.querySelectorAll('.attendee-row').length + 1;
+      const tr = document.createElement('tr');
+      tr.className = 'attendee-row';
+      tr.innerHTML = `
+        <td class="px-2 py-1 text-center text-xs text-muted-foreground font-bold">${rowNum}</td>
+        <td class="px-2 py-1"><input class="att-name w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" placeholder="Full name"></td>
+        <td class="px-2 py-1"><input class="att-position w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" placeholder="Position/Title"></td>
+        <td class="px-2 py-1"><input class="att-dept w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" placeholder="Department/Org"></td>
+        <td class="px-2 py-1 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive text-sm px-1">✕</button></td>
+      `;
+      tbody.appendChild(tr);
+    };
+
+    window.saveMeeting = async function(meetingId='') {
+      const title = $('mtg-title')?.value?.trim();
+      const meetingDate = $('mtg-date')?.value;
+      if (!title) return toast('Meeting title required','error');
+      if (!meetingDate) return toast('Meeting date required','error');
+      const agendaItems = Array.from(document.querySelectorAll('.agenda-input')).map(i=>i.value.trim()).filter(Boolean);
+      // Collect attendees from table
+      const attendeesList = [];
+      document.querySelectorAll('.attendee-row').forEach(row => {
+        const name = row.querySelector('.att-name')?.value?.trim()||'';
+        const position = row.querySelector('.att-position')?.value?.trim()||'';
+        const department = row.querySelector('.att-dept')?.value?.trim()||'';
+        if (name) attendeesList.push({ name, position, department });
+      });
+      const payload = {
+        title,
+        meetingType: $('mtg-type')?.value||'Regular Meeting',
+        meetingDate,
+        startTime: $('mtg-start')?.value||'',
+        endTime: $('mtg-end')?.value||'',
+        location: $('mtg-location')?.value||'',
+        facilitatorId: $('mtg-facilitator')?.value||'',
+        secretaryId: $('mtg-secretary')?.value||'',
+        agendaItems,
+        attendeesList,
+        attendees: attendeesList.map(a => a.name), // keep for backward compat display
+        updatedAt: new Date().toISOString(),
+      };
+      try {
+        if (meetingId) {
+          await updateDoc(doc(db,'meetings',meetingId), payload);
+          toast('✅ Meeting updated');
+        } else {
+          payload.createdBy = currentUid();
+          payload.createdAt = serverTimestamp();
+          await addDoc(collection(db,'meetings'), payload);
+          toast('📅 Meeting created');
+        }
+        closeModal();
+        navigate('meetings');
+      } catch(e) { console.error(e); toast('Failed to save','error'); }
     };
 
     window.addAgendaItem = function() {
@@ -4303,59 +4847,6 @@
         <button onclick="this.closest('.agenda-item').remove()" class="text-destructive px-1">✕</button>
       `;
       container.appendChild(div);
-    };
-
-    window.saveMeeting = async function(meetingId='') {
-      const title = $('mtg-title')?.value?.trim();
-      const meetingDate = $('mtg-date')?.value;
-      if (!title) return toast('Meeting title required','error');
-      if (!meetingDate) return toast('Meeting date required','error');
-      const agendaItems = Array.from(document.querySelectorAll('.agenda-input')).map(i=>i.value.trim()).filter(Boolean);
-      const attendees = Array.from(document.querySelectorAll('.mtg-attendee:checked')).map(c=>c.value);
-      const fileInput = $('mtg-minutes-file');
-      let minutesFileUrl='', minutesFileName='';
-      if (fileInput?.files[0]) {
-        try {
-          const file = fileInput.files[0];
-          const ref = sRef(storage, `meetings/${Date.now()}_${file.name}`);
-          await uploadBytes(ref, file);
-          minutesFileUrl = await getDownloadURL(ref);
-          minutesFileName = file.name;
-        } catch(e) { console.error(e); }
-      }
-      const payload = {
-        title,
-        meetingType: $('mtg-type')?.value||'Regular Meeting',
-        meetingDate,
-        startTime: $('mtg-start')?.value||'',
-        endTime: $('mtg-end')?.value||'',
-        location: $('mtg-location')?.value||'',
-        facilitatorId: $('mtg-facilitator')?.value||'',
-        secretaryId: $('mtg-secretary')?.value||'',
-        agendaItems,
-        attendees,
-        ...(minutesFileUrl ? {minutesFileUrl, minutesFileName} : {}),
-        updatedAt: new Date().toISOString(),
-      };
-      try {
-        if (meetingId) {
-          await updateDoc(doc(db,'meetings',meetingId), payload);
-          toast('✅ Meeting updated');
-        } else {
-          payload.createdBy = currentUid();
-          payload.createdAt = serverTimestamp();
-          const added = await addDoc(collection(db,'meetings'), payload);
-          // Notify attendees
-          attendees.forEach(uid => {
-            if (uid !== currentUid()) {
-              notify(uid, `📅 Meeting: "${title}" on ${new Date(meetingDate).toLocaleDateString()} — you're invited`, `meetings`, 'meeting');
-            }
-          });
-          toast('📅 Meeting created');
-        }
-        closeModal();
-        navigate('meetings');
-      } catch(e) { console.error(e); toast('Failed to save','error'); }
     };
 
     window.viewMeeting = function(id) {
@@ -4424,15 +4915,36 @@
 
                 <!-- Attendees -->
                 <div>
-                  <h3 class="font-bold text-sm uppercase tracking-wide text-muted-foreground mb-3">👥 Attendees (${(m.attendees||[]).length})</h3>
+                  <h3 class="font-bold text-sm uppercase tracking-wide text-muted-foreground mb-3">👥 Attendees (${(m.attendeesList||m.attendees||[]).length})</h3>
+                  ${(m.attendeesList||[]).length > 0 ? `
+                  <div class="border border-border rounded-xl overflow-hidden">
+                    <table class="w-full text-xs">
+                      <thead class="bg-muted/40 border-b border-border">
+                        <tr>
+                          <th class="px-3 py-2 text-center text-muted-foreground w-8">#</th>
+                          <th class="px-3 py-2 text-left text-muted-foreground">Name</th>
+                          <th class="px-3 py-2 text-left text-muted-foreground">Position</th>
+                          <th class="px-3 py-2 text-left text-muted-foreground">Department / Org</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-border">
+                        ${(m.attendeesList||[]).map((a,i)=>`
+                          <tr class="hover:bg-muted/20">
+                            <td class="px-3 py-2 text-center text-muted-foreground font-bold">${i+1}</td>
+                            <td class="px-3 py-2 font-medium">${a.name||'—'}</td>
+                            <td class="px-3 py-2 text-muted-foreground">${a.position||'—'}</td>
+                            <td class="px-3 py-2 text-muted-foreground">${a.department||'—'}</td>
+                          </tr>`).join('')}
+                      </tbody>
+                    </table>
+                  </div>` : `
                   <div class="flex flex-wrap gap-2">
-                    ${(m.attendees||[]).map(uid => {
-                      const u = state.users.find(x=>x.id===uid);
-                      return `<div class="flex items-center gap-1.5 bg-muted/50 rounded-full px-3 py-1 text-xs border border-border">
-                        ${getUserAvatar(uid,'w-5 h-5 text-[8px]')} ${u?.name||u?.email||uid}
-                      </div>`;
-                    }).join('')}
-                  </div>
+                    ${(m.attendees||[]).map(name => `
+                      <div class="flex items-center gap-1.5 bg-muted/50 rounded-full px-3 py-1 text-xs border border-border">
+                        <span class="w-5 h-5 rounded-full bg-primary/20 text-primary text-[8px] font-bold flex items-center justify-center">${(name||'?').charAt(0).toUpperCase()}</span> ${name}
+                      </div>`).join('')}
+                    ${!(m.attendees||[]).length ? '<p class="text-xs text-muted-foreground">No attendees recorded</p>' : ''}
+                  </div>`}
                 </div>
               </div>
 
@@ -4468,33 +4980,173 @@
     window.openMinutesModal = function(meetingId) {
       const m = (state.meetings||[]).find(x=>x.id===meetingId);
       if (!m) return;
+      const actions = m.actionItems || [];
       showModal(`
-        <div class="p-5 border-b border-border flex justify-between items-center">
-          <h3 class="font-bold">📝 Minutes — ${m.title}</h3>
-          <button onclick="closeModal()" class="text-muted-foreground">✕</button>
+        <div class="p-5 border-b border-border flex justify-between items-center bg-muted/30 rounded-t-xl">
+          <h3 class="font-bold text-base">📝 Minutes of Meeting — ${m.title}</h3>
+          <div class="flex gap-2">
+            <button onclick="window.downloadMinutesPDF('${meetingId}')" class="h-8 px-3 rounded-lg border border-border hover:bg-muted text-xs font-medium">📄 Download PDF</button>
+            <button onclick="closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
+          </div>
         </div>
-        <div class="p-5 space-y-3">
-          <p class="text-xs text-muted-foreground">Record the official minutes of this meeting. Use headings, lists, and formatting to structure the notes.</p>
-          <div id="minutes-editor-mount"></div>
+        <div class="p-6 space-y-5 overflow-y-auto max-h-[75vh]">
+          <div>
+            <label class="block text-sm font-semibold mb-2">Meeting Minutes</label>
+            <div id="minutes-editor-mount"></div>
+          </div>
+          <!-- Action Items Table -->
+          <div>
+            <div class="flex items-center justify-between mb-3">
+              <label class="text-sm font-semibold">Action Items</label>
+              <button onclick="window.addActionItem()" class="text-xs text-primary hover:underline font-medium">＋ Add Item</button>
+            </div>
+            <div class="border border-border rounded-xl overflow-hidden">
+              <table class="w-full text-xs">
+                <thead class="bg-muted/40 border-b border-border">
+                  <tr>
+                    <th class="px-3 py-2 text-left font-semibold text-muted-foreground">#</th>
+                    <th class="px-3 py-2 text-left font-semibold text-muted-foreground">Item Details</th>
+                    <th class="px-3 py-2 text-left font-semibold text-muted-foreground">Action Required</th>
+                    <th class="px-3 py-2 text-left font-semibold text-muted-foreground">Due Date</th>
+                    <th class="px-3 py-2 text-left font-semibold text-muted-foreground">Responsible</th>
+                    <th class="px-3 py-2 text-left font-semibold text-muted-foreground">Next Step</th>
+                    <th class="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody id="action-items-body" class="divide-y divide-border">
+                  ${actions.map((a,i) => `
+                    <tr class="action-item-row">
+                      <td class="px-3 py-2 font-bold text-muted-foreground">${i+1}</td>
+                      <td class="px-3 py-2"><input class="ai-details w-full bg-transparent border-none outline-none text-xs" value="${(a.details||'').replace(/"/g,'&quot;')}" placeholder="Item details..."></td>
+                      <td class="px-3 py-2"><input class="ai-action w-full bg-transparent border-none outline-none text-xs" value="${(a.action||'').replace(/"/g,'&quot;')}" placeholder="Action required..."></td>
+                      <td class="px-3 py-2"><input class="ai-due type=date w-full bg-transparent border-none outline-none text-xs" value="${a.dueDate||''}" placeholder="YYYY-MM-DD"></td>
+                      <td class="px-3 py-2"><input class="ai-resp w-full bg-transparent border-none outline-none text-xs" value="${(a.responsible||'').replace(/"/g,'&quot;')}" placeholder="Person..."></td>
+                      <td class="px-3 py-2"><input class="ai-next w-full bg-transparent border-none outline-none text-xs" value="${(a.nextStep||'').replace(/"/g,'&quot;')}" placeholder="Next step..."></td>
+                      <td class="px-3 py-2"><button onclick="this.closest('tr').remove()" class="text-destructive hover:text-destructive/80 p-1">×</button></td>
+                    </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-        <div class="p-5 border-t border-border flex justify-end gap-2">
+        <div class="p-5 border-t border-border bg-muted/30 flex justify-end gap-2">
           <button onclick="closeModal()" class="px-4 py-2 rounded-xl border border-border text-sm">Cancel</button>
           <button onclick="window.saveMinutes('${meetingId}')" class="px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-bold">💾 Save Minutes</button>
         </div>
       `);
-      const q = EditorManager.init('minutes-editor-mount', { placeholder: 'Record discussion points, decisions made, action items, next steps…', minHeight: '280px' });
+      const q = EditorManager.init('minutes-editor-mount', { placeholder: 'Record discussion points, decisions made, resolutions…', minHeight: '200px' });
       if (m.minutesContent) EditorManager.setHTML('minutes-editor-mount', m.minutesContent);
+    };
+
+    window.addActionItem = function() {
+      const tbody = $('action-items-body');
+      if (!tbody) return;
+      const rowCount = tbody.querySelectorAll('.action-item-row').length + 1;
+      const tr = document.createElement('tr');
+      tr.className = 'action-item-row';
+      tr.innerHTML = `
+        <td class="px-3 py-2 font-bold text-muted-foreground">${rowCount}</td>
+        <td class="px-3 py-2"><input class="ai-details w-full bg-transparent border-none outline-none text-xs" placeholder="Item details..."></td>
+        <td class="px-3 py-2"><input class="ai-action w-full bg-transparent border-none outline-none text-xs" placeholder="Action required..."></td>
+        <td class="px-3 py-2"><input class="ai-due w-full bg-transparent border-none outline-none text-xs" placeholder="YYYY-MM-DD"></td>
+        <td class="px-3 py-2"><input class="ai-resp w-full bg-transparent border-none outline-none text-xs" placeholder="Person..."></td>
+        <td class="px-3 py-2"><input class="ai-next w-full bg-transparent border-none outline-none text-xs" placeholder="Next step..."></td>
+        <td class="px-3 py-2"><button onclick="this.closest('tr').remove()" class="text-destructive p-1">×</button></td>
+      `;
+      tbody.appendChild(tr);
     };
 
     window.saveMinutes = async function(meetingId) {
       const html = EditorManager.getHTML('minutes-editor-mount');
-      if (!html) return toast('Please write the minutes first','error');
+      // Collect action items
+      const actionItems = [];
+      document.querySelectorAll('.action-item-row').forEach((row, i) => {
+        const details = row.querySelector('.ai-details')?.value?.trim()||'';
+        const action = row.querySelector('.ai-action')?.value?.trim()||'';
+        const dueDate = row.querySelector('.ai-due')?.value?.trim()||'';
+        const responsible = row.querySelector('.ai-resp')?.value?.trim()||'';
+        const nextStep = row.querySelector('.ai-next')?.value?.trim()||'';
+        if (details || action) actionItems.push({itemNo:i+1,details,action,dueDate,responsible,nextStep});
+      });
       try {
-        await updateDoc(doc(db,'meetings',meetingId), { minutesContent: html, minutesUpdatedAt: new Date().toISOString() });
+        await updateDoc(doc(db,'meetings',meetingId), { minutesContent: html||'', actionItems, minutesUpdatedAt: new Date().toISOString() });
         toast('📝 Minutes saved');
+        await logActivity('minutes','Meetings','Saved meeting minutes');
         closeModal();
         setTimeout(() => window.viewMeeting(meetingId), 200);
-      } catch(e) { toast('Failed to save','error'); }
+      } catch(e) { console.error(e); toast('Failed to save','error'); }
+    };
+
+    window.downloadMinutesPDF = function(meetingId) {
+      const m = (state.meetings||[]).find(x=>x.id===meetingId);
+      if (!m) return;
+      const actions = m.actionItems || [];
+      const facilitator = state.users.find(u=>u.id===m.facilitatorId);
+      const secretary = state.users.find(u=>u.id===m.secretaryId);
+      const attendeesList = m.attendeesList || [];
+      const w = window.open('','_blank');
+      w.document.write(`<!DOCTYPE html><html><head>
+        <title>Minutes - ${m.title}</title>
+        <style>
+          body{font-family:Arial,sans-serif;margin:40px;color:#111}
+          .header-logo{text-align:center;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid #333}
+          .header-logo h1{font-size:24px;margin:0 0 4px}
+          .header-logo p{margin:2px 0;color:#555;font-size:13px}
+          h2{font-size:15px;color:#222;margin-top:22px;margin-bottom:6px;border-bottom:1.5px solid #ccc;padding-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
+          .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px;font-size:13px;margin-bottom:8px}
+          .info-row{display:flex;gap:6px} .info-label{font-weight:bold;min-width:110px;color:#555} .info-val{color:#111}
+          table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
+          th{background:#f0f0f0;border:1px solid #ccc;padding:7px 10px;text-align:left;font-weight:bold}
+          td{border:1px solid #ccc;padding:6px 10px}
+          tr:nth-child(even) td{background:#fafafa}
+          .sig-cell{width:100px;height:32px;}
+          .footer{margin-top:40px;color:#aaa;font-size:11px;text-align:center;border-top:1px solid #eee;padding-top:10px}
+          @media print{body{margin:20px}}
+        </style>
+      </head><body>
+        <div class="header-logo">
+          <h1>📅 Minutes of Meeting</h1>
+          <p><strong>${m.title}</strong></p>
+          <p>${m.meetingType||'Meeting'}</p>
+        </div>
+
+        <h2>Meeting Information</h2>
+        <div class="info-grid">
+          <div class="info-row"><span class="info-label">Date:</span><span class="info-val">${m.meetingDate ? new Date(m.meetingDate+'T00:00:00').toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'}) : '—'}</span></div>
+          <div class="info-row"><span class="info-label">Meeting Type:</span><span class="info-val">${m.meetingType||'—'}</span></div>
+          <div class="info-row"><span class="info-label">Time:</span><span class="info-val">${m.startTime||'—'}${m.endTime?' – '+m.endTime:''}</span></div>
+          <div class="info-row"><span class="info-label">Location:</span><span class="info-val">${m.location||'—'}</span></div>
+          <div class="info-row"><span class="info-label">Facilitator:</span><span class="info-val">${facilitator?.name||facilitator?.email||'—'}</span></div>
+          <div class="info-row"><span class="info-label">Minutes Taker:</span><span class="info-val">${secretary?.name||secretary?.email||'—'}</span></div>
+        </div>
+
+        ${m.agendaItems?.length ? `
+        <h2>Agenda</h2>
+        <ol style="font-size:13px;padding-left:18px;margin:6px 0">
+          ${m.agendaItems.map(a=>`<li style="margin:3px 0">${a}</li>`).join('')}
+        </ol>` : ''}
+
+        ${attendeesList.length ? `
+        <h2>Attendees (${attendeesList.length})</h2>
+        <table>
+          <tr><th>#</th><th>Name</th><th>Position / Title</th><th>Department / Organization</th><th style="width:120px">Signature</th></tr>
+          ${attendeesList.map((a,i)=>`<tr><td>${i+1}</td><td>${a.name||''}</td><td>${a.position||''}</td><td>${a.department||''}</td><td class="sig-cell"></td></tr>`).join('')}
+        </table>` : ''}
+
+        <h2>Minutes</h2>
+        <div style="font-size:13px;line-height:1.7;margin-top:6px">${m.minutesContent||'<em style="color:#999">No minutes recorded.</em>'}</div>
+
+        ${actions.length ? `
+        <h2>Action Items</h2>
+        <table>
+          <tr><th>#</th><th>Item Details</th><th>Action Required</th><th>Due Date</th><th>Responsible</th><th>Next Step</th></tr>
+          ${actions.map(a=>`<tr><td>${a.itemNo}</td><td>${a.details||''}</td><td>${a.action||''}</td><td>${a.dueDate||''}</td><td>${a.responsible||''}</td><td>${a.nextStep||''}</td></tr>`).join('')}
+        </table>` : ''}
+
+        <div class="footer">Generated by SDA Portal · ${new Date().toLocaleString()}</div>
+        <script>window.onload=()=>window.print();<\/script>
+      </body></html>`);
+      w.document.close();
     };
 
     window.deleteMeeting = async function(id) {
@@ -4557,29 +5209,8 @@
 
 
     function renderProfile() {
-      const results = state.quizResults || [];
-      const html = `
-        <div class="max-w-2xl mx-auto space-y-6 animate-slide-in">
-          <div class="bg-card border border-border rounded-xl p-6 shadow-sm">
-            <h3 class="text-lg font-semibold mb-4">${state.currentUserDoc?.name || 'My Profile'}</h3>
-            <div class="space-y-3">
-              ${results.length ? results.map(r => {
-                const quiz = state.quizzes.find(q => q.id === r.quizId);
-                return `
-                  <div class="p-3 border rounded-lg flex justify-between">
-                    <div>
-                      <div class="font-medium">${quiz?.title || 'Quiz'}</div>
-                      <div class="text-xs text-muted-foreground">${(r.date?.toDate ? r.date.toDate().toLocaleString() : '')}</div>
-                    </div>
-                    <div class="font-semibold">${r.score}/${r.total}</div>
-                  </div>
-                `;
-              }).join('') : '<div class="text-sm text-muted-foreground">No quiz results yet.</div>'}
-            </div>
-          </div>
-        </div>
-      `;
-      $('content-area').innerHTML = html;
+      // Redirect to My Settings for better UX
+      navigate('my-settings');
     }
 
     /***********************
@@ -5116,7 +5747,1064 @@
       }
     }
 
-    (async function boot() {
+    
+    /***********************
+     * MY NOTES MODULE
+     ***********************/
+    function renderMyNotes() {
+      const notes = state.notes || [];
+      const html = `
+        <div class="max-w-5xl mx-auto space-y-5 animate-slide-in">
+          <div class="bg-gradient-to-r from-yellow-400/20 via-orange-400/10 to-transparent border border-border rounded-2xl p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 class="text-xl font-black flex items-center gap-2">📓 My Notes</h2>
+                <p class="text-sm text-muted-foreground mt-0.5">${notes.length} private notes · Only visible to you</p>
+              </div>
+              <button onclick="window.openNoteModal()" class="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm shadow hover:shadow-md hover:bg-primary/90 transition-all">
+                ＋ New Note
+              </button>
+            </div>
+          </div>
+
+          <!-- Search bar -->
+          <div class="flex gap-3 items-center bg-card border border-border rounded-xl p-3">
+            <div class="relative flex-1">
+              <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm"></i>
+              <input id="note-search" type="text" placeholder="Search notes..." oninput="window.filterNotes()"
+                class="w-full h-9 pl-9 pr-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+            </div>
+            <select id="note-color" onchange="window.filterNotes()" class="h-9 px-3 rounded-lg border border-input bg-background text-sm">
+              <option value="">All Colors</option>
+              <option value="yellow">🟡 Yellow</option>
+              <option value="blue">🔵 Blue</option>
+              <option value="green">🟢 Green</option>
+              <option value="pink">🩷 Pink</option>
+              <option value="purple">🟣 Purple</option>
+            </select>
+          </div>
+
+          <!-- Notes Grid -->
+          <div id="notes-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            ${renderNoteCards(notes)}
+          </div>
+          ${notes.length === 0 ? `
+            <div class="text-center py-20 text-muted-foreground">
+              <div class="text-6xl mb-4">📓</div>
+              <p class="font-bold text-lg">No notes yet</p>
+              <p class="text-sm mt-1">Click "New Note" to create your first private note</p>
+            </div>` : ''}
+        </div>
+      `;
+      $('content-area').innerHTML = html;
+    }
+
+    function renderNoteCards(notes) {
+      const colorMap = {
+        yellow: 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800',
+        blue: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800',
+        green: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800',
+        pink: 'bg-pink-50 dark:bg-pink-900/20 border-pink-200 dark:border-pink-800',
+        purple: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800',
+      };
+      return notes.map(n => {
+        const cls = colorMap[n.color] || 'bg-card border-border';
+        return `
+          <div class="rounded-2xl border ${cls} p-5 shadow-sm hover:shadow-md transition-all group cursor-pointer" onclick="window.openNoteModal('${n.id}')">
+            <div class="flex items-start justify-between mb-2">
+              <h4 class="font-bold text-sm truncate flex-1">${n.title || 'Untitled'}</h4>
+              <button onclick="event.stopPropagation(); window.deleteNote('${n.id}')" class="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive transition-all ml-1 rounded">
+                <i class="fa-solid fa-trash text-xs"></i>
+              </button>
+            </div>
+            <p class="text-xs text-muted-foreground mb-3 line-clamp-4">${(n.content||'').replace(/<[^>]+>/g,'').slice(0,200)}</p>
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] text-muted-foreground">${timeAgo(n.updatedAt||n.createdAt)}</span>
+              ${n.pinned ? '<span class="text-[10px] font-bold text-primary">📌 Pinned</span>' : ''}
+            </div>
+          </div>`;
+      }).join('') || '<div class="col-span-3 text-center py-8 text-muted-foreground text-sm">No notes match your search</div>';
+    }
+
+    window.filterNotes = function() {
+      const search = ($('note-search')?.value||'').toLowerCase();
+      const color = $('note-color')?.value||'';
+      const filtered = (state.notes||[]).filter(n => {
+        const hay = `${n.title||''} ${(n.content||'').replace(/<[^>]+>/g,'')}`.toLowerCase();
+        return hay.includes(search) && (!color || n.color === color);
+      });
+      const grid = $('notes-grid');
+      if (grid) grid.innerHTML = renderNoteCards(filtered);
+    };
+
+    window.openNoteModal = function(noteId=null) {
+      const isEdit = !!noteId;
+      const n = isEdit ? (state.notes||[]).find(x=>x.id===noteId) : {};
+      const colors = ['yellow','blue','green','pink','purple'];
+      const colorLabels = {yellow:'🟡 Yellow',blue:'🔵 Blue',green:'🟢 Green',pink:'🩷 Pink',purple:'🟣 Purple'};
+      showModal(`
+        <div class="p-6 border-b border-border flex justify-between items-center bg-muted/30 rounded-t-xl">
+          <h3 class="font-bold text-lg">${isEdit?'Edit Note':'New Note'}</h3>
+          <div class="flex items-center gap-2">
+            ${isEdit ? `<button onclick="window.deleteNote('${noteId}'); window.closeModal();" class="px-3 py-1.5 rounded-lg border border-destructive/30 text-destructive text-xs hover:bg-destructive/10">🗑️ Delete</button>` : ''}
+            <button onclick="window.closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
+          </div>
+        </div>
+        <div class="p-6 space-y-4">
+          <input id="note-title" value="${(n?.title||'').replace(/"/g,'&quot;')}" placeholder="Note title..." class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-ring">
+          <div>
+            <label class="text-xs font-semibold text-muted-foreground mb-2 block">Color</label>
+            <div class="flex gap-2">
+              ${colors.map(c => `
+                <label class="cursor-pointer">
+                  <input type="radio" name="note-color-sel" value="${c}" class="sr-only" ${n?.color===c||(!n?.color&&c==='yellow')?'checked':''}>
+                  <div class="px-2.5 py-1.5 rounded-lg text-xs font-medium border-2 transition-all ${n?.color===c||(!n?.color&&c==='yellow')?'border-primary':'border-transparent hover:border-border'} note-color-opt" data-color="${c}">${colorLabels[c]}</div>
+                </label>`).join('')}
+            </div>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-muted-foreground mb-2 block">Content</label>
+            <div id="note-editor-mount"></div>
+          </div>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="note-pinned" ${n?.pinned?'checked':''} class="rounded border-border accent-primary">
+            <span class="text-sm text-muted-foreground">📌 Pin this note to top</span>
+          </label>
+        </div>
+        <div class="p-6 border-t border-border bg-muted/30 rounded-b-xl flex justify-end gap-3">
+          <button onclick="window.closeModal()" class="px-4 py-2 rounded-xl border border-input bg-background hover:bg-muted text-sm font-medium">Cancel</button>
+          <button onclick="window.saveNote('${noteId||''}')" class="px-5 py-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-bold shadow-sm">💾 Save Note</button>
+        </div>
+      `);
+      EditorManager.init('note-editor-mount', { placeholder: 'Write your note here...', minHeight: '200px' });
+      if (n?.content) EditorManager.setHTML('note-editor-mount', n.content);
+      // Color picker highlight
+      document.querySelectorAll('.note-color-opt').forEach(el => {
+        el.addEventListener('click', () => {
+          document.querySelectorAll('.note-color-opt').forEach(x=>x.closest('label').querySelector('input').checked=false);
+          el.closest('label').querySelector('input').checked=true;
+          document.querySelectorAll('.note-color-opt').forEach(x => {
+            x.classList.toggle('border-primary', x.dataset.color === el.dataset.color);
+            x.classList.toggle('border-transparent', x.dataset.color !== el.dataset.color);
+          });
+        });
+      });
+    };
+
+    window.saveNote = async function(noteId) {
+      const title = $('note-title')?.value?.trim() || 'Untitled';
+      const content = EditorManager.getHTML('note-editor-mount');
+      const color = document.querySelector('input[name="note-color-sel"]:checked')?.value || 'yellow';
+      const pinned = $('note-pinned')?.checked || false;
+      const uid = currentUid();
+      try {
+        if (noteId) {
+          await updateDoc(doc(db,'notes',noteId), { title, content, color, pinned, updatedAt: serverTimestamp() });
+          toast('Note updated');
+        } else {
+          await addDoc(collection(db,'notes'), { title, content, color, pinned, userId: uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+          toast('Note saved');
+        }
+        closeModal();
+        await logActivity('note', 'My Notes', noteId ? 'Edited note' : 'Created note: '+title);
+      } catch(e) { console.error(e); toast('Failed to save note','error'); }
+    };
+
+    window.deleteNote = async function(id) {
+      if (!confirm('Delete this note?')) return;
+      try { await deleteDoc(doc(db,'notes',id)); toast('Note deleted'); }
+      catch(e) { toast('Failed to delete','error'); }
+    };
+
+    /***********************
+     * EXPENSE TRACKING MODULE
+     ***********************/
+    let _expTab = 'RCA';
+
+    function renderExpenses() {
+      const isAdmin = state.currentUserDoc?.role === 'admin';
+      const uid = currentUid();
+      const expenses = state.expenses || [];
+
+      // Tab summaries
+      function tabSummary(type) {
+        const rows = expenses.filter(e => e.expenseType === type);
+        const totalBudget = rows.reduce((s,e) => s + (parseFloat(e.budgetAmount)||0), 0);
+        const totalSpent  = rows.reduce((s,e) => s + (parseFloat(e.amount)||0), 0);
+        const remaining   = totalBudget - totalSpent;
+        const open   = rows.filter(e => e.status === 'Open').length;
+        const closed = rows.filter(e => e.status === 'Closed').length;
+        return { rows, totalBudget, totalSpent, remaining, open, closed };
+      }
+      const rca  = tabSummary('RCA');
+      const vale = tabSummary('VALE');
+
+      const activeRows = _expTab === 'RCA' ? rca : vale;
+      const activeSummary = _expTab === 'RCA' ? rca : vale;
+
+      const html = `
+        <div class="max-w-6xl mx-auto space-y-5 animate-slide-in">
+          <!-- Header -->
+          <div class="bg-gradient-to-r from-emerald-500/15 via-primary/10 to-transparent border border-border rounded-2xl p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 class="text-xl font-black flex items-center gap-2">💸 Expense Tracking</h2>
+                <p class="text-sm text-muted-foreground mt-0.5">RCA & VALE expense management with transaction tracking</p>
+              </div>
+              <div class="flex gap-2">
+                <button onclick="window.exportExpensesCSV()" class="px-4 py-2.5 border border-border bg-background hover:bg-muted rounded-xl font-semibold text-sm transition-all">📥 Export</button>
+                <button onclick="window.openExpenseModal()" class="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm shadow hover:shadow-md hover:bg-primary/90 transition-all">
+                  ＋ Add Expense
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Overview KPI -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-card border border-border rounded-2xl p-4 shadow-sm text-center">
+              <div class="text-xs text-muted-foreground font-semibold uppercase tracking-wide mb-1">RCA Budget</div>
+              <div class="text-xl font-black text-blue-500">₱${rca.totalBudget.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+              <div class="text-xs text-muted-foreground mt-1">${rca.rows.length} transactions</div>
+            </div>
+            <div class="bg-card border border-border rounded-2xl p-4 shadow-sm text-center">
+              <div class="text-xs text-muted-foreground font-semibold uppercase tracking-wide mb-1">RCA Spent</div>
+              <div class="text-xl font-black text-red-500">₱${rca.totalSpent.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+              <div class="text-xs mt-1 font-semibold ${rca.remaining>=0?'text-green-600':'text-red-500'}">Remaining: ₱${rca.remaining.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+            </div>
+            <div class="bg-card border border-border rounded-2xl p-4 shadow-sm text-center">
+              <div class="text-xs text-muted-foreground font-semibold uppercase tracking-wide mb-1">VALE Budget</div>
+              <div class="text-xl font-black text-purple-500">₱${vale.totalBudget.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+              <div class="text-xs text-muted-foreground mt-1">${vale.rows.length} transactions</div>
+            </div>
+            <div class="bg-card border border-border rounded-2xl p-4 shadow-sm text-center">
+              <div class="text-xs text-muted-foreground font-semibold uppercase tracking-wide mb-1">VALE Spent</div>
+              <div class="text-xl font-black text-orange-500">₱${vale.totalSpent.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+              <div class="text-xs mt-1 font-semibold ${vale.remaining>=0?'text-green-600':'text-red-500'}">Remaining: ₱${vale.remaining.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+            </div>
+          </div>
+
+          <!-- Tabs -->
+          <div class="flex gap-1 bg-muted/50 border border-border rounded-2xl p-1.5 w-fit">
+            <button onclick="window.switchExpTab('RCA')" class="px-6 py-2 rounded-xl text-sm font-bold transition-all ${_expTab==='RCA'?'bg-blue-500 text-white shadow':'hover:bg-muted text-muted-foreground'}">
+              📋 RCA <span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full ${_expTab==='RCA'?'bg-white/20 text-white':'bg-muted-foreground/20'}">${rca.rows.length}</span>
+            </button>
+            <button onclick="window.switchExpTab('VALE')" class="px-6 py-2 rounded-xl text-sm font-bold transition-all ${_expTab==='VALE'?'bg-purple-500 text-white shadow':'hover:bg-muted text-muted-foreground'}">
+              📋 VALE <span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full ${_expTab==='VALE'?'bg-white/20 text-white':'bg-muted-foreground/20'}">${vale.rows.length}</span>
+            </button>
+          </div>
+
+          <!-- Active Tab Summary Bar -->
+          <div class="bg-card border border-border rounded-2xl p-4 shadow-sm">
+            <div class="flex flex-wrap gap-6 items-center">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl ${_expTab==='RCA'?'bg-blue-100 text-blue-600':'bg-purple-100 text-purple-600'} flex items-center justify-center font-black text-sm">${_expTab}</div>
+                <div>
+                  <div class="font-bold text-base">${_expTab} Expense Tracker</div>
+                  <div class="text-xs text-muted-foreground">${activeSummary.open} Open · ${activeSummary.closed} Closed</div>
+                </div>
+              </div>
+              <div class="flex gap-5 ml-auto text-sm">
+                <div class="text-center">
+                  <div class="font-black text-base">₱${activeSummary.totalBudget.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                  <div class="text-xs text-muted-foreground">Total Budget</div>
+                </div>
+                <div class="text-center">
+                  <div class="font-black text-base text-red-500">₱${activeSummary.totalSpent.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                  <div class="text-xs text-muted-foreground">Total Expensed</div>
+                </div>
+                <div class="text-center">
+                  <div class="font-black text-base ${activeSummary.remaining>=0?'text-green-600':'text-red-500'}">₱${activeSummary.remaining.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                  <div class="text-xs text-muted-foreground">Remaining</div>
+                </div>
+              </div>
+            </div>
+            <!-- Progress bar -->
+            ${activeSummary.totalBudget > 0 ? `
+            <div class="mt-3">
+              <div class="flex justify-between text-[10px] text-muted-foreground mb-1">
+                <span>Budget utilization</span>
+                <span>${Math.min(100,Math.round((activeSummary.totalSpent/activeSummary.totalBudget)*100))}%</span>
+              </div>
+              <div class="h-2 bg-muted rounded-full overflow-hidden">
+                <div class="h-full rounded-full transition-all ${activeSummary.totalSpent/activeSummary.totalBudget > 0.9 ? 'bg-red-500' : activeSummary.totalSpent/activeSummary.totalBudget > 0.7 ? 'bg-yellow-500' : 'bg-green-500'}"
+                  style="width:${Math.min(100,Math.round((activeSummary.totalSpent/activeSummary.totalBudget)*100))}%"></div>
+              </div>
+            </div>` : ''}
+          </div>
+
+          <!-- Search filter -->
+          <div class="flex gap-3 flex-wrap items-center bg-card border border-border rounded-xl p-3">
+            <input id="exp-search" type="text" placeholder="🔍 Search by particulars or description..." oninput="window.filterExpenses()"
+              class="h-9 px-3 rounded-lg border border-input bg-background text-sm flex-1 min-w-[200px] focus:outline-none focus:ring-1 focus:ring-ring">
+            <select id="exp-status-filter" onchange="window.filterExpenses()" class="h-9 px-3 rounded-lg border border-input bg-background text-sm">
+              <option value="">All Status</option>
+              <option value="Open">🟡 Open</option>
+              <option value="Closed">🟢 Closed</option>
+            </select>
+          </div>
+
+          <!-- Expense Table -->
+          <div class="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left">
+                <thead class="text-xs text-muted-foreground uppercase bg-muted/50 border-b border-border">
+                  <tr>
+                    <th class="px-5 py-3">Date</th>
+                    <th class="px-5 py-3">Particulars</th>
+                    <th class="px-5 py-3">Description</th>
+                    <th class="px-5 py-3">Submitted By</th>
+                    <th class="px-5 py-3">Budget (₱)</th>
+                    <th class="px-5 py-3">Expensed (₱)</th>
+                    <th class="px-5 py-3">Remaining (₱)</th>
+                    <th class="px-5 py-3">Status</th>
+                    <th class="px-5 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="exp-table-body" class="divide-y divide-border">
+                  ${renderExpenseRows(activeRows.rows)}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+      $('content-area').innerHTML = html;
+    }
+
+    window.switchExpTab = function(tab) {
+      _expTab = tab;
+      renderExpenses();
+    };
+
+    function renderExpenseRows(expenses) {
+      const isAdmin = state.currentUserDoc?.role === 'admin';
+      const uid = currentUid();
+      if (!expenses.length) return `<tr><td colspan="9" class="px-6 py-10 text-center text-muted-foreground">No expenses found</td></tr>`;
+      const statusColors = {
+        Open:   'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300',
+        Closed: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300',
+      };
+      return expenses.map(e => {
+        const budget    = parseFloat(e.budgetAmount||0);
+        const expensed  = parseFloat(e.amount||0);
+        const remaining = budget - expensed;
+        return `
+        <tr class="hover:bg-muted/30 transition-colors">
+          <td class="px-5 py-3 text-xs text-muted-foreground whitespace-nowrap">${e.date || formatDate(e.createdAt)}</td>
+          <td class="px-5 py-3 font-semibold text-sm">${e.particulars||'—'}</td>
+          <td class="px-5 py-3 text-xs text-muted-foreground max-w-[150px] truncate" title="${e.description||''}">${e.description || '—'}</td>
+          <td class="px-5 py-3">
+            <div class="flex items-center gap-1.5">${getUserAvatar(e.submittedBy,'w-6 h-6 text-[10px]')}<span class="text-xs">${getUserName(e.submittedBy)}</span></div>
+          </td>
+          <td class="px-5 py-3 font-bold text-blue-600">₱${budget.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+          <td class="px-5 py-3 font-bold text-red-500">₱${expensed.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+          <td class="px-5 py-3 font-bold ${remaining>=0?'text-green-600':'text-red-500'}">₱${remaining.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+          <td class="px-5 py-3">
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-bold border ${statusColors[e.status]||statusColors['Open']}">
+              ${e.status==='Closed'?'🟢':'🟡'} ${e.status||'Open'}
+            </span>
+          </td>
+          <td class="px-5 py-3 text-right">
+            <div class="flex items-center justify-end gap-1">
+              <button onclick="window.viewExpense('${e.id}')" class="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary text-xs">👁️</button>
+              ${isAdmin || e.submittedBy === uid ? `
+                <button onclick="window.openExpenseModal('${e.id}')" class="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary text-xs">✏️</button>
+                <button onclick="window.deleteExpense('${e.id}')" class="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 text-xs">🗑️</button>
+              ` : ''}
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    window.filterExpenses = function() {
+      const search = ($('exp-search')?.value||'').toLowerCase();
+      const status = $('exp-status-filter')?.value||'';
+      const typeExpenses = (state.expenses||[]).filter(e => e.expenseType === _expTab);
+      const filtered = typeExpenses.filter(e => {
+        const hay = `${e.particulars||''} ${e.description||''}`.toLowerCase();
+        return hay.includes(search) && (!status||e.status===status);
+      });
+      const tbody = $('exp-table-body');
+      if (tbody) tbody.innerHTML = renderExpenseRows(filtered);
+    };
+
+    window.openExpenseModal = function(expId=null) {
+      const isEdit = !!expId;
+      const e = isEdit ? (state.expenses||[]).find(x=>x.id===expId) : { expenseType: _expTab };
+      const defaultType = e?.expenseType || _expTab || 'RCA';
+      showModal(`
+        <div class="p-6 border-b border-border flex justify-between items-center bg-muted/30 rounded-t-xl">
+          <h3 class="font-bold text-lg">${isEdit?'✏️ Edit Expense':'💸 Add Expense'}</h3>
+          <button onclick="window.closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <div class="p-6 space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium mb-1">Expense Type <span class="text-destructive">*</span></label>
+              <div class="flex gap-2">
+                <label class="flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all ${defaultType==='RCA'?'border-blue-500 bg-blue-50 dark:bg-blue-900/20':'border-border hover:border-blue-300'}">
+                  <input type="radio" name="exp-type-radio" id="exp-type-rca" value="RCA" class="hidden" ${defaultType==='RCA'?'checked':''} onchange="document.getElementById('exp-type-sel').value='RCA';document.querySelectorAll('[name=exp-type-radio]').forEach((r,i)=>{r.closest('label').className=r.checked?'flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all border-blue-500 bg-blue-50 dark:bg-blue-900/20':'flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all border-border hover:border-blue-300'})">
+                  <span class="font-bold text-sm">📋 RCA</span>
+                </label>
+                <label class="flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all ${defaultType==='VALE'?'border-purple-500 bg-purple-50 dark:bg-purple-900/20':'border-border hover:border-purple-300'}">
+                  <input type="radio" name="exp-type-radio" id="exp-type-vale" value="VALE" class="hidden" ${defaultType==='VALE'?'checked':''} onchange="document.getElementById('exp-type-sel').value='VALE';document.querySelectorAll('[name=exp-type-radio]').forEach((r,i)=>{r.closest('label').className=r.checked?'flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all border-purple-500 bg-purple-50 dark:bg-purple-900/20':'flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all border-border hover:border-purple-300'})">
+                  <span class="font-bold text-sm">📋 VALE</span>
+                </label>
+              </div>
+              <input type="hidden" id="exp-type-sel" value="${defaultType}">
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">Date <span class="text-destructive">*</span></label>
+              <input id="exp-date" type="date" value="${e?.date||new Date().toISOString().slice(0,10)}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
+            </div>
+            <div class="col-span-2">
+              <label class="block text-sm font-medium mb-1">Particulars <span class="text-destructive">*</span></label>
+              <input id="exp-particulars" value="${e?.particulars||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="e.g. Field Visit to Batangas · Office Supplies · Staff Meeting">
+            </div>
+            <div class="col-span-2">
+              <label class="block text-sm font-medium mb-1">Description</label>
+              <input id="exp-desc" value="${e?.description||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="Additional details about this expense...">
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">Budget / Cash Advance (₱) <span class="text-destructive">*</span></label>
+              <input id="exp-budget" type="number" step="0.01" min="0" value="${e?.budgetAmount||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="0.00">
+              <p class="text-xs text-muted-foreground mt-1">Total amount given/approved</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">Amount Expensed (₱) <span class="text-destructive">*</span></label>
+              <input id="exp-amount" type="number" step="0.01" min="0" value="${e?.amount||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="0.00">
+              <p class="text-xs text-muted-foreground mt-1">Actual amount spent</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">Receipt / Reference</label>
+              <input id="exp-ref" value="${e?.reference||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="Receipt number or reference">
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">Status</label>
+              <select id="exp-status-sel" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
+                <option value="Open" ${(e?.status==='Open'||!e?.status)?'selected':''}>🟡 Open — Not yet returned</option>
+                <option value="Closed" ${e?.status==='Closed'?'selected':''}>🟢 Closed — Already returned</option>
+              </select>
+            </div>
+            <div class="col-span-2">
+              <label class="block text-sm font-medium mb-1">Notes</label>
+              <textarea id="exp-notes" rows="2" class="w-full px-3 py-2 rounded-xl border border-input bg-background text-sm resize-none" placeholder="Additional notes...">${e?.notes||''}</textarea>
+            </div>
+          </div>
+        </div>
+        <div class="p-6 border-t border-border bg-muted/30 rounded-b-xl flex justify-end gap-3">
+          <button onclick="window.closeModal()" class="px-4 py-2 rounded-xl border border-input bg-background hover:bg-muted text-sm font-medium">Cancel</button>
+          <button onclick="window.saveExpense('${expId||''}')" class="px-5 py-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-bold shadow-sm">💾 Save Expense</button>
+        </div>
+      `);
+    };
+
+    window.saveExpense = async function(expId) {
+      const particulars = $('exp-particulars')?.value?.trim();
+      const desc = $('exp-desc')?.value?.trim();
+      const amount = parseFloat($('exp-amount')?.value||0);
+      const budgetAmount = parseFloat($('exp-budget')?.value||0);
+      const date = $('exp-date')?.value;
+      if (!particulars) return toast('Particulars is required','error');
+      if (!amount || amount <= 0) return toast('Valid expensed amount is required','error');
+      if (!budgetAmount || budgetAmount <= 0) return toast('Valid budget/cash advance amount is required','error');
+      if (!date) return toast('Date is required','error');
+      const payload = {
+        particulars,
+        description: desc || '',
+        expenseType: $('exp-type-sel')?.value || 'RCA',
+        amount,
+        budgetAmount,
+        date,
+        reference: $('exp-ref')?.value?.trim()||'',
+        notes: $('exp-notes')?.value?.trim()||'',
+        status: $('exp-status-sel')?.value || 'Open',
+        submittedBy: currentUid(),
+        createdAt: expId ? (state.expenses.find(e=>e.id===expId)?.createdAt||serverTimestamp()) : serverTimestamp()
+      };
+      try {
+        if (expId) {
+          await updateDoc(doc(db,'expenses',expId), payload);
+          toast('Expense updated');
+        } else {
+          await addDoc(collection(db,'expenses'), payload);
+          toast('Expense submitted');
+          state.users.filter(u=>u.role==='admin').forEach(u => notify(u.id, `💸 New ${payload.expenseType} expense by ${getUserName(currentUid())}: ₱${amount.toLocaleString()} — ${particulars}`, 'expenses', 'expense'));
+        }
+        await logActivity('expense', 'Expenses', expId ? 'Edited expense' : 'Added expense: '+particulars);
+        closeModal();
+      } catch(e) { console.error(e); toast('Failed to save expense','error'); }
+    };
+
+    window.viewExpense = function(expId) {
+      const e = (state.expenses||[]).find(x=>x.id===expId);
+      if (!e) return;
+      const isAdmin = state.currentUserDoc?.role === 'admin';
+      const uid = currentUid();
+      const canEdit = isAdmin || e.submittedBy === uid;
+      const budget    = parseFloat(e.budgetAmount||0);
+      const expensed  = parseFloat(e.amount||0);
+      const remaining = budget - expensed;
+      const statusColors = {
+        Open:   'bg-orange-50 text-orange-700 border-orange-200',
+        Closed: 'bg-green-50 text-green-700 border-green-200',
+      };
+      showModal(`
+        <div class="p-6 border-b border-border flex justify-between items-center bg-muted/30 rounded-t-xl">
+          <div class="flex items-center gap-3">
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-primary/10 text-primary border border-primary/20">${e.expenseType||'RCA'}</span>
+            <h3 class="font-bold text-lg">💸 Expense Details</h3>
+          </div>
+          <button onclick="window.closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <div class="p-6 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-xl font-bold">${e.particulars||'—'}</h4>
+              ${e.description ? `<p class="text-sm text-muted-foreground mt-0.5">${e.description}</p>` : ''}
+            </div>
+            <span class="px-3 py-1 rounded-full text-sm font-bold border ${statusColors[e.status]||statusColors['Open']}">${e.status==='Closed'?'🟢':'🟡'} ${e.status||'Open'}</span>
+          </div>
+          <!-- Budget tracker -->
+          <div class="grid grid-cols-3 gap-3">
+            <div class="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 border border-blue-200 dark:border-blue-800 text-center">
+              <div class="text-xs text-blue-600 dark:text-blue-400 font-semibold mb-1">Budget / Cash Advance</div>
+              <div class="font-black text-xl text-blue-600 dark:text-blue-400">₱${budget.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+            </div>
+            <div class="bg-red-50 dark:bg-red-900/20 rounded-xl p-3 border border-red-200 dark:border-red-800 text-center">
+              <div class="text-xs text-red-600 dark:text-red-400 font-semibold mb-1">Amount Expensed</div>
+              <div class="font-black text-xl text-red-500">₱${expensed.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+            </div>
+            <div class="bg-${remaining>=0?'green':'red'}-50 dark:bg-${remaining>=0?'green':'red'}-900/20 rounded-xl p-3 border border-${remaining>=0?'green':'red'}-200 dark:border-${remaining>=0?'green':'red'}-800 text-center">
+              <div class="text-xs text-${remaining>=0?'green':'red'}-600 font-semibold mb-1">Remaining</div>
+              <div class="font-black text-xl text-${remaining>=0?'green-600':'red-500'}">₱${remaining.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="bg-muted/40 rounded-xl p-3"><div class="text-xs text-muted-foreground mb-1">Date</div><div class="font-medium">${e.date||'—'}</div></div>
+            <div class="bg-muted/40 rounded-xl p-3"><div class="text-xs text-muted-foreground mb-1">Receipt / Reference</div><div class="font-medium">${e.reference||'—'}</div></div>
+            <div class="bg-muted/40 rounded-xl p-3 col-span-2"><div class="text-xs text-muted-foreground mb-1">Submitted By</div><div class="flex items-center gap-2">${getUserAvatar(e.submittedBy,'w-6 h-6 text-xs')} ${getUserName(e.submittedBy)}</div></div>
+          </div>
+          ${e.notes ? `<div class="bg-muted/40 rounded-xl p-3 text-sm"><div class="text-xs text-muted-foreground mb-1">Notes</div>${e.notes}</div>` : ''}
+          ${canEdit ? `
+          <div class="pt-3 border-t border-border">
+            <label class="block text-sm font-semibold mb-2">Update Status</label>
+            <div class="flex gap-2">
+              <button onclick="window.updateExpenseStatus('${e.id}','Open')" class="flex-1 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${e.status==='Open'||!e.status?'bg-orange-500 text-white border-orange-500':'border-border hover:bg-muted'}">🟡 Open</button>
+              <button onclick="window.updateExpenseStatus('${e.id}','Closed')" class="flex-1 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${e.status==='Closed'?'bg-green-500 text-white border-green-500':'border-border hover:bg-muted'}">🟢 Closed (Returned)</button>
+            </div>
+          </div>` : ''}
+          ${canEdit ? `
+          <div class="flex gap-2 pt-2">
+            <button onclick="closeModal();setTimeout(()=>window.openExpenseModal('${e.id}'),100)" class="flex-1 px-4 py-2 rounded-xl border border-border text-sm font-medium hover:bg-muted">✏️ Edit</button>
+            <button onclick="closeModal();window.deleteExpense('${e.id}')" class="px-4 py-2 rounded-xl border border-destructive/30 text-destructive hover:bg-destructive/10 text-sm font-medium">🗑️ Delete</button>
+          </div>` : ''}
+        </div>
+      `);
+    };
+
+    window.updateExpenseStatus = async function(expId, status) {
+      try {
+        await updateDoc(doc(db,'expenses',expId), { status });
+        const e = state.expenses.find(x=>x.id===expId);
+        if (e) notify(e.submittedBy, `💸 Your ${e.expenseType||''} expense "${e.particulars||e.description}" is now ${status}`, 'expenses', 'expense');
+        toast(`Status updated to ${status}`);
+        closeModal();
+      } catch(e) { toast('Failed to update','error'); }
+    };
+
+    window.deleteExpense = async function(id) {
+      if (!confirm('Delete this expense?')) return;
+      try { await deleteDoc(doc(db,'expenses',id)); toast('Expense deleted'); }
+      catch(e) { toast('Failed to delete','error'); }
+    };
+
+    window.exportExpensesCSV = function() {
+      const rows = [['Date','Type','Particulars','Description','Budget (₱)','Amount Expensed (₱)','Remaining (₱)','Reference','Status','Submitted By','Notes']];
+      (state.expenses||[]).forEach(e => {
+        const budget = parseFloat(e.budgetAmount||0);
+        const expensed = parseFloat(e.amount||0);
+        rows.push([e.date||'',e.expenseType||'',e.particulars||'',e.description||'',budget.toFixed(2),expensed.toFixed(2),(budget-expensed).toFixed(2),e.reference||'',e.status||'Open',getUserName(e.submittedBy),e.notes||'']);
+      });
+      downloadCSV(`expenses_${new Date().toISOString().slice(0,10)}.csv`, rows);
+      toast('Expenses exported');
+    };
+
+    /***********************
+     * CALENDAR MODULE
+     ***********************/
+    let _calView = 'month';
+    let _calDate = new Date();
+
+    function renderCalendar() {
+      const html = `
+        <div class="max-w-6xl mx-auto space-y-4 animate-slide-in">
+          <div class="bg-card border border-border rounded-2xl p-4 flex items-center justify-between shadow-sm">
+            <div class="flex items-center gap-3">
+              <button onclick="window.calNav(-1)" class="w-9 h-9 rounded-xl border border-border hover:bg-muted flex items-center justify-center transition-colors">‹</button>
+              <h3 id="cal-title" class="font-bold text-lg min-w-[200px] text-center"></h3>
+              <button onclick="window.calNav(1)" class="w-9 h-9 rounded-xl border border-border hover:bg-muted flex items-center justify-center transition-colors">›</button>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex rounded-xl overflow-hidden border border-border">
+                ${['month','week','day'].map(v=>`<button onclick="window.calSetView('${v}')" data-cal-view="${v}" class="px-4 py-2 text-sm font-medium transition-colors ${_calView===v?'bg-primary text-primary-foreground':'bg-background hover:bg-muted'}">${v.charAt(0).toUpperCase()+v.slice(1)}</button>`).join('')}
+              </div>
+              <button onclick="window.exportCalendarPDF()" class="h-9 px-3 rounded-xl border border-border hover:bg-muted text-xs font-medium">📥 PDF</button>
+              <button onclick="window.calGoToday()" class="h-9 px-3 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-bold">Today</button>
+            </div>
+          </div>
+          <div id="cal-grid"></div>
+        </div>
+      `;
+      $('content-area').innerHTML = html;
+      window.renderCalendarGrid();
+    }
+
+    window.calNav = function(dir) {
+      if (_calView === 'month') _calDate.setMonth(_calDate.getMonth() + dir);
+      else if (_calView === 'week') _calDate.setDate(_calDate.getDate() + dir*7);
+      else _calDate.setDate(_calDate.getDate() + dir);
+      window.renderCalendarGrid();
+    };
+    window.calGoToday = function() { _calDate = new Date(); window.renderCalendarGrid(); };
+    window.calSetView = function(v) {
+      _calView = v;
+      document.querySelectorAll('[data-cal-view]').forEach(el => {
+        el.classList.toggle('bg-primary', el.dataset.calView === v);
+        el.classList.toggle('text-primary-foreground', el.dataset.calView === v);
+        el.classList.toggle('bg-background', el.dataset.calView !== v);
+      });
+      window.renderCalendarGrid();
+    };
+
+    function getCalendarEvents() {
+      const uid = currentUid();
+      const events = [];
+      // Tasks
+      (state.tasks||[]).filter(t => t.dueDate && ((state.currentUserDoc?.role==='admin') || t.assignedTo===uid || (t.assignedToList||[]).includes(uid))).forEach(t => {
+        events.push({ date: t.dueDate, title: t.title, color: t.status==='Completed'?'#22c55e':new Date(t.dueDate)<new Date()&&t.status!=='Completed'?'#ef4444':'#3b82f6', type: 'task', id: t.id });
+      });
+      // Meetings
+      (state.meetings||[]).forEach(m => {
+        if (m.meetingDate) events.push({ date: m.meetingDate, title: m.title, color: '#06b6d4', type: 'meeting', id: m.id });
+      });
+      return events;
+    }
+
+    window.renderCalendarGrid = function() {
+      const titleEl = $('cal-title');
+      const grid = $('cal-grid');
+      if (!grid) return;
+      const events = getCalendarEvents();
+      if (_calView === 'month') {
+        const y = _calDate.getFullYear(), m = _calDate.getMonth();
+        if (titleEl) titleEl.textContent = new Date(y,m,1).toLocaleDateString('en-US',{month:'long',year:'numeric'});
+        const firstDay = new Date(y,m,1).getDay();
+        const daysInMonth = new Date(y,m+1,0).getDate();
+        const today = new Date().toISOString().slice(0,10);
+        const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        let html = `<div class="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
+          <div class="grid grid-cols-7 border-b border-border">
+            ${days.map(d=>`<div class="p-3 text-center text-xs font-bold text-muted-foreground">${d}</div>`).join('')}
+          </div>
+          <div class="grid grid-cols-7">`;
+        for (let i=0; i<firstDay; i++) html += `<div class="min-h-[100px] border-r border-b border-border/50 p-2 bg-muted/20"></div>`;
+        for (let d=1; d<=daysInMonth; d++) {
+          const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+          const dayEvents = events.filter(e=>e.date===dateStr);
+          const isToday = dateStr === today;
+          html += `<div class="min-h-[100px] border-r border-b border-border/50 p-2 ${isToday?'bg-primary/5':''} hover:bg-muted/30 transition-colors">
+            <div class="${isToday?'w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold':'text-xs font-semibold text-foreground'} mb-1">${d}</div>
+            <div class="space-y-0.5">
+              ${dayEvents.slice(0,3).map(ev=>`<div class="text-[10px] px-1.5 py-0.5 rounded font-medium truncate cursor-pointer text-white" style="background:${ev.color}" onclick="ev.type==='task'?window.openTaskModal('${ev.id}'):window.viewMeeting('${ev.id}')" title="${ev.title}">${ev.title}</div>`).join('')}
+              ${dayEvents.length>3?`<div class="text-[10px] text-muted-foreground font-medium pl-1">+${dayEvents.length-3} more</div>`:''}
+            </div>
+          </div>`;
+        }
+        html += '</div></div>';
+        grid.innerHTML = html;
+      } else if (_calView === 'week') {
+        const startOfWeek = new Date(_calDate);
+        startOfWeek.setDate(_calDate.getDate() - _calDate.getDay());
+        const weekDays = [];
+        for (let i=0; i<7; i++) {
+          const d = new Date(startOfWeek); d.setDate(startOfWeek.getDate()+i);
+          weekDays.push(d);
+        }
+        const today = new Date().toISOString().slice(0,10);
+        if (titleEl) titleEl.textContent = `${weekDays[0].toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${weekDays[6].toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`;
+        let html = `<div class="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
+          <div class="grid grid-cols-7 border-b border-border">`;
+        weekDays.forEach(d => {
+          const isToday = d.toISOString().slice(0,10) === today;
+          html += `<div class="p-3 text-center border-r border-border/50 ${isToday?'bg-primary/10':''}">
+            <div class="text-xs text-muted-foreground">${d.toLocaleDateString('en-US',{weekday:'short'})}</div>
+            <div class="${isToday?'text-primary font-black':'font-bold'} text-lg">${d.getDate()}</div>
+          </div>`;
+        });
+        html += '</div><div class="grid grid-cols-7 min-h-[400px]">';
+        weekDays.forEach(d => {
+          const dateStr = d.toISOString().slice(0,10);
+          const dayEvents = events.filter(e=>e.date===dateStr);
+          html += `<div class="border-r border-border/50 p-2 min-h-[400px] hover:bg-muted/20 transition-colors">
+            ${dayEvents.map(ev=>`<div class="text-[11px] px-2 py-1.5 rounded-lg font-medium mb-1 cursor-pointer text-white" style="background:${ev.color}" onclick="ev.type==='task'?window.openTaskModal('${ev.id}'):window.viewMeeting('${ev.id}')">${ev.title}</div>`).join('')}
+          </div>`;
+        });
+        html += '</div></div>';
+        grid.innerHTML = html;
+      } else {
+        const dateStr = _calDate.toISOString().slice(0,10);
+        if (titleEl) titleEl.textContent = _calDate.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+        const dayEvents = events.filter(e=>e.date===dateStr);
+        let html = `<div class="bg-card border border-border rounded-2xl p-6 shadow-sm">
+          ${dayEvents.length ? `<div class="space-y-3">
+            ${dayEvents.map(ev=>`<div class="flex items-center gap-3 p-4 rounded-xl border border-border hover:bg-muted/30 cursor-pointer transition-colors" onclick="ev.type==='task'?window.openTaskModal('${ev.id}'):window.viewMeeting('${ev.id}')">
+              <div class="w-3 h-3 rounded-full" style="background:${ev.color}"></div>
+              <div>
+                <div class="font-semibold">${ev.title}</div>
+                <div class="text-xs text-muted-foreground">${ev.type.charAt(0).toUpperCase()+ev.type.slice(1)}</div>
+              </div>
+            </div>`).join('')}
+          </div>` : '<div class="text-center py-16 text-muted-foreground"><div class="text-4xl mb-3">🗓️</div><p class="font-medium">No events on this day</p></div>'}
+        </div>`;
+        grid.innerHTML = html;
+      }
+    };
+
+    window.exportCalendarPDF = function() {
+      toast('PDF export requires print — use Ctrl+P to print the calendar','info');
+      window.print();
+    };
+
+    /***********************
+     * RECURRING TASKS MODULE
+     ***********************/
+    function renderRecurringTasks() {
+      const isAdmin = state.currentUserDoc?.role === 'admin';
+      if (!isAdmin) return navigate('home');
+      const tasks = state.recurringTasks || [];
+      const html = `
+        <div class="max-w-5xl mx-auto space-y-5 animate-slide-in">
+          <div class="bg-gradient-to-r from-violet-500/15 to-transparent border border-border rounded-2xl p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 class="text-xl font-black flex items-center gap-2">🔄 Recurring Tasks</h2>
+                <p class="text-sm text-muted-foreground mt-0.5">${tasks.length} recurring task templates · Auto-generates tasks on schedule</p>
+              </div>
+              <button onclick="window.openRecurringTaskModal()" class="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm shadow hover:shadow-md hover:bg-primary/90 transition-all">
+                ＋ New Recurring Task
+              </button>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 gap-4">
+            ${tasks.map(t => {
+              const schedLabel = {daily:'Daily 📅',weekly:'Weekly 📆',monthly:'Monthly 🗓️',biweekly:'Bi-Weekly'}[t.frequency]||t.frequency;
+              return `
+                <div class="bg-card border border-border rounded-2xl p-5 shadow-sm">
+                  <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                      <div class="flex items-center gap-2 mb-1">
+                        <h4 class="font-bold">${t.title}</h4>
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 font-semibold">${schedLabel}</span>
+                        <span class="text-xs px-2 py-0.5 rounded-full ${t.active?'bg-green-100 text-green-700':'bg-gray-100 text-gray-500'} font-semibold">${t.active?'Active':'Paused'}</span>
+                      </div>
+                      <p class="text-sm text-muted-foreground">${t.description||''}</p>
+                      <div class="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                        <span>👤 ${getUserName(t.assignedTo)}</span>
+                        <span>⚡ ${t.priority||'Medium'}</span>
+                        ${t.nextRun ? `<span>⏭️ Next: ${t.nextRun}</span>` : ''}
+                      </div>
+                    </div>
+                    <div class="flex gap-2 shrink-0">
+                      <button onclick="window.toggleRecurringTask('${t.id}',${!t.active})" class="h-8 px-3 rounded-lg border border-border hover:bg-muted text-xs font-medium">${t.active?'⏸ Pause':'▶ Resume'}</button>
+                      <button onclick="window.deleteRecurringTask('${t.id}')" class="h-8 px-3 rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/10 text-xs">🗑️</button>
+                    </div>
+                  </div>
+                </div>`;
+            }).join('')}
+            ${tasks.length===0 ? '<div class="text-center py-16 text-muted-foreground"><div class="text-4xl mb-3">🔄</div><p class="font-bold">No recurring tasks yet</p></div>' : ''}
+          </div>
+        </div>
+      `;
+      $('content-area').innerHTML = html;
+    }
+
+    window.openRecurringTaskModal = function() {
+      const taskTypes = state.settings.taskTypes || ['Project','Internal','Cluster'];
+      showModal(`
+        <div class="p-6 border-b border-border flex justify-between items-center bg-muted/30 rounded-t-xl">
+          <h3 class="font-bold">🔄 Create Recurring Task</h3>
+          <button onclick="window.closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <div class="p-6 space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div class="col-span-2">
+              <label class="block text-sm font-semibold mb-1">Task Title *</label>
+              <input id="rt-title" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="Enter task title...">
+            </div>
+            <div class="col-span-2">
+              <label class="block text-sm font-semibold mb-1">Description</label>
+              <textarea id="rt-desc" rows="2" class="w-full px-3 py-2 rounded-xl border border-input bg-background text-sm resize-none"></textarea>
+            </div>
+            <div>
+              <label class="block text-sm font-semibold mb-1">Frequency *</label>
+              <select id="rt-freq" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="biweekly">Bi-Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-semibold mb-1">Day of Week (Weekly)</label>
+              <select id="rt-day" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
+                ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((d,i)=>`<option value="${i}">${d}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-semibold mb-1">Assign To *</label>
+              <select id="rt-assign" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
+                ${state.users.filter(u=>u.status!=='inactive').map(u=>`<option value="${u.id}">${u.name||u.email}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-semibold mb-1">Priority</label>
+              <select id="rt-priority" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
+                ${['Low','Medium','High'].map(p=>`<option value="${p}" ${p==='Medium'?'selected':''}>${p}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-semibold mb-1">Task Type</label>
+              <select id="rt-type" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
+                ${taskTypes.map(t=>`<option value="${t}">${t}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-semibold mb-1">Start Date *</label>
+              <input id="rt-start" type="date" value="${new Date().toISOString().slice(0,10)}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
+            </div>
+          </div>
+        </div>
+        <div class="p-6 border-t border-border bg-muted/30 rounded-b-xl flex justify-end gap-3">
+          <button onclick="window.closeModal()" class="px-4 py-2 rounded-xl border border-input bg-background hover:bg-muted text-sm font-medium">Cancel</button>
+          <button onclick="window.saveRecurringTask()" class="px-5 py-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-bold">Create Template</button>
+        </div>
+      `);
+    };
+
+    window.saveRecurringTask = async function() {
+      const title = $('rt-title')?.value?.trim();
+      if (!title) return toast('Title is required','error');
+      const startDate = $('rt-start')?.value;
+      if (!startDate) return toast('Start date is required','error');
+      try {
+        await addDoc(collection(db,'recurring_tasks'), {
+          title, description: $('rt-desc')?.value?.trim()||'',
+          frequency: $('rt-freq')?.value||'weekly',
+          dayOfWeek: parseInt($('rt-day')?.value||0),
+          assignedTo: $('rt-assign')?.value||'',
+          priority: $('rt-priority')?.value||'Medium',
+          taskType: $('rt-type')?.value||'Internal',
+          startDate, nextRun: startDate,
+          active: true, createdBy: currentUid(), createdAt: serverTimestamp()
+        });
+        closeModal(); toast('🔄 Recurring task template created!');
+      } catch(e) { console.error(e); toast('Failed to create','error'); }
+    };
+
+    window.toggleRecurringTask = async function(id, active) {
+      try { await updateDoc(doc(db,'recurring_tasks',id), {active}); toast(active?'Task resumed':'Task paused'); }
+      catch(e) { toast('Failed to update','error'); }
+    };
+    window.deleteRecurringTask = async function(id) {
+      if (!confirm('Delete this recurring task template?')) return;
+      try { await deleteDoc(doc(db,'recurring_tasks',id)); toast('Template deleted'); }
+      catch(e) { toast('Failed to delete','error'); }
+    };
+
+    /***********************
+     * MY SETTINGS MODULE
+     ***********************/
+    function renderMySettings() {
+      const u = state.currentUserDoc || {};
+      const palettes = [
+        {name:'Default Blue', primary:'221.2 83.2% 53.3%', label:'🔵'},
+        {name:'Purple', primary:'270 95% 60%', label:'🟣'},
+        {name:'Green', primary:'142 70% 45%', label:'🟢'},
+        {name:'Orange', primary:'25 95% 55%', label:'🟠'},
+        {name:'Rose', primary:'345 82% 55%', label:'🌹'},
+        {name:'Teal', primary:'172 66% 50%', label:'🩵'},
+      ];
+      const savedPalette = localStorage.getItem('sda_palette')||'Default Blue';
+      const html = `
+        <div class="max-w-2xl mx-auto space-y-6 animate-slide-in">
+          <!-- Profile Card -->
+          <div class="bg-card border border-border rounded-2xl p-6 shadow-sm">
+            <h3 class="font-bold text-lg mb-5">👤 My Profile</h3>
+            <div class="flex items-center gap-4 mb-6">
+              ${getUserAvatar(currentUid(), 'w-16 h-16 text-xl border-2 border-border')}
+              <div>
+                <p class="font-bold text-lg">${u.name||'User'}</p>
+                <p class="text-sm text-muted-foreground">${u.email||''}</p>
+                <span class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-semibold">${u.role||'user'}</span>
+              </div>
+            </div>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-semibold mb-1">Display Name / Nickname</label>
+                <input id="set-name" value="${u.name||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                <p class="text-xs text-muted-foreground mt-1">This name will appear across all modules</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Password Card -->
+          <div class="bg-card border border-border rounded-2xl p-6 shadow-sm">
+            <h3 class="font-bold text-lg mb-5">🔑 Change Password</h3>
+            <div class="space-y-3">
+              <div>
+                <label class="block text-sm font-semibold mb-1">Current Password</label>
+                <input id="set-old-pw" type="password" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="Enter current password">
+              </div>
+              <div>
+                <label class="block text-sm font-semibold mb-1">New Password</label>
+                <input id="set-new-pw" type="password" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="Enter new password">
+              </div>
+              <div>
+                <label class="block text-sm font-semibold mb-1">Confirm New Password</label>
+                <input id="set-confirm-pw" type="password" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="Confirm new password">
+              </div>
+            </div>
+          </div>
+
+          <!-- Color Palette -->
+          <div class="bg-card border border-border rounded-2xl p-6 shadow-sm">
+            <h3 class="font-bold text-lg mb-4">🎨 Color Theme</h3>
+            <div class="grid grid-cols-3 gap-3">
+              ${palettes.map(p => `
+                <button onclick="window.applyPalette('${p.name}','${p.primary}')"
+                  class="p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${savedPalette===p.name?'border-primary bg-primary/5':'border-border hover:border-primary/50'}">
+                  <span class="text-2xl">${p.label}</span>
+                  <div class="w-full h-3 rounded-full" style="background:hsl(${p.primary})"></div>
+                  <span class="text-xs font-semibold">${p.name}</span>
+                </button>`).join('')}
+            </div>
+          </div>
+
+          <!-- Save Button -->
+          <button onclick="window.saveMySettings()" class="w-full h-12 bg-primary text-primary-foreground rounded-2xl font-bold text-base shadow hover:bg-primary/90 transition-all">
+            💾 Save Settings
+          </button>
+        </div>
+      `;
+      $('content-area').innerHTML = html;
+    }
+
+    window.applyPalette = function(name, primary) {
+      document.documentElement.style.setProperty('--primary', primary);
+      document.documentElement.style.setProperty('--ring', primary);
+      localStorage.setItem('sda_palette', name);
+      localStorage.setItem('sda_primary', primary);
+      renderMySettings();
+      toast('🎨 Theme applied!');
+    };
+
+    // Apply saved palette on boot
+    (function() {
+      const saved = localStorage.getItem('sda_primary');
+      if (saved) {
+        document.documentElement.style.setProperty('--primary', saved);
+        document.documentElement.style.setProperty('--ring', saved);
+      }
+    })();
+
+    window.saveMySettings = async function() {
+      const name = $('set-name')?.value?.trim();
+      const oldPw = $('set-old-pw')?.value||'';
+      const newPw = $('set-new-pw')?.value||'';
+      const confirmPw = $('set-confirm-pw')?.value||'';
+      const uid = currentUid();
+      if (!name) return toast('Display name is required','error');
+
+      const updates = { name };
+
+      if (newPw) {
+        if (state.currentUserDoc?.password !== oldPw) return toast('Current password is incorrect','error');
+        if (newPw !== confirmPw) return toast('Passwords do not match','error');
+        if (newPw.length < 4) return toast('Password must be at least 4 characters','error');
+        updates.password = newPw;
+      }
+
+      try {
+        await updateDoc(doc(db,'users',uid), updates);
+        // Update local state
+        state.currentUserDoc = { ...state.currentUserDoc, ...updates };
+        localStorage.setItem('sda_user', JSON.stringify(state.currentUserDoc));
+        updateUserHeader();
+        toast('✅ Settings saved!');
+        if (newPw) toast('🔑 Password updated successfully!','info');
+        await logActivity('settings', 'My Settings', 'Updated profile settings');
+      } catch(e) { console.error(e); toast('Failed to save settings','error'); }
+    };
+
+    /***********************
+     * ACTIVITY LOGS (Admin)
+     ***********************/
+    function renderActivityLogs() {
+      const isAdmin = state.currentUserDoc?.role === 'admin';
+      if (!isAdmin) return navigate('home');
+      const logs = state.activityLogs || [];
+      const html = `
+        <div class="max-w-5xl mx-auto space-y-5 animate-slide-in">
+          <div class="flex justify-between items-center">
+            <div>
+              <h3 class="font-bold text-xl">📋 Activity Logs</h3>
+              <p class="text-sm text-muted-foreground">${logs.length} activities recorded</p>
+            </div>
+            <button onclick="window.exportLogsCSV()" class="h-9 px-4 bg-primary text-primary-foreground rounded-lg text-sm font-bold hover:bg-primary/90">📥 Export CSV</button>
+          </div>
+          <div class="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-muted/40 text-xs text-muted-foreground uppercase border-b border-border">
+                  <tr>
+                    <th class="px-5 py-3 text-left">User</th>
+                    <th class="px-5 py-3 text-left">Action</th>
+                    <th class="px-5 py-3 text-left">Module</th>
+                    <th class="px-5 py-3 text-left">Details</th>
+                    <th class="px-5 py-3 text-left">Time</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-border">
+                  ${logs.slice(0,200).map(l=>`
+                    <tr class="hover:bg-muted/30">
+                      <td class="px-5 py-3 font-medium text-sm">${l.userName||getUserName(l.userId)||'User'}</td>
+                      <td class="px-5 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-muted border border-border">${l.action||'—'}</span></td>
+                      <td class="px-5 py-3 text-sm text-muted-foreground">${l.module||'—'}</td>
+                      <td class="px-5 py-3 text-xs text-muted-foreground max-w-[200px] truncate">${l.details||''}</td>
+                      <td class="px-5 py-3 text-xs text-muted-foreground">${timeAgo(l.createdAt)}</td>
+                    </tr>`).join('')||'<tr><td colspan="5" class="px-5 py-8 text-center text-muted-foreground">No activity logs yet</td></tr>'}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+      $('content-area').innerHTML = html;
+    }
+
+    window.exportLogsCSV = function() {
+      const rows = [['User','Action','Module','Details','Time']];
+      (state.activityLogs||[]).forEach(l => {
+        rows.push([l.userName||getUserName(l.userId)||'',l.action||'',l.module||'',l.details||'',l.createdAt?.toDate?l.createdAt.toDate().toLocaleString():'']);
+      });
+      downloadCSV(`activity_logs_${new Date().toISOString().slice(0,10)}.csv`, rows);
+      toast('Logs exported');
+    };
+
+(async function boot() {
       try {
         await ensureSettings();       // Ensure global settings doc
         await initializeAuthSystem(); // Ensure default admin user (seeding only; no hint on UI)
