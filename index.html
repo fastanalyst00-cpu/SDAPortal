@@ -2110,9 +2110,17 @@ document.addEventListener('DOMContentLoaded', ()=>{
               </select>
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1">Due Date <span class="text-destructive">*</span></label>
-              <input type="date" id="t-due" value="${task?.dueDate || ''}" class="w-full h-10 px-3 rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring">
-              <p class="text-xs text-muted-foreground mt-1">Required before saving</p>
+              <label class="block text-sm font-medium mb-1">Due Date ${isEdit ? '<span class="text-xs font-normal text-muted-foreground">(locked after saving)</span>' : '<span class="text-destructive">*</span>'}</label>
+              ${isEdit
+                ? `<div class="w-full h-10 px-3 rounded-md border border-border bg-muted text-sm flex items-center gap-2 text-muted-foreground cursor-not-allowed select-none">
+                    <i class="fa-solid fa-lock text-xs"></i>
+                    <span>${task?.dueDate ? new Date(task.dueDate).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) : '—'}</span>
+                    <input type="hidden" id="t-due" value="${task?.dueDate || ''}">
+                  </div>
+                  <p class="text-xs text-muted-foreground mt-1">Due date cannot be changed after a task is saved.</p>`
+                : `<input type="date" id="t-due" value="${task?.dueDate || ''}" class="w-full h-10 px-3 rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring">
+                   <p class="text-xs text-muted-foreground mt-1">Required before saving</p>`
+              }
             </div>
 
           </div>
