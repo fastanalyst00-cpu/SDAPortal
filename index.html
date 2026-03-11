@@ -1793,37 +1793,56 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const taskTypes = state.settings.taskTypes || [];
       const isAdmin = state.currentUserDoc?.role === 'admin';
       const visibleTasks = getVisibleTasks();
+      const allStatuses = ['Open','In Progress','For Review','Completed','Closed','Cancelled'];
       const html = `
         <div class="space-y-3 animate-slide-in">
           <!-- Filters bar -->
-          <div class="bg-card border border-border rounded-2xl px-4 py-3 flex flex-wrap items-center gap-2 shadow-sm">
-            <input type="text" id="task-search" placeholder="🔍 Search tasks..." class="h-9 px-3 rounded-lg border border-input bg-background text-sm w-44 focus:outline-none focus:ring-1 focus:ring-ring">
-            <select id="task-filter-status" class="h-9 px-2 rounded-lg border border-input bg-background text-sm">
-              <option value="">⚡ All Status</option>
-              ${statuses.map(s => `<option value="${s}">${s}</option>`).join('')}
-            </select>
-            <select id="task-filter-project" class="h-9 px-2 rounded-lg border border-input bg-background text-sm">
-              <option value="">📁 All Projects</option>
-              ${state.projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
-            </select>
-            <select id="task-filter-type" class="h-9 px-2 rounded-lg border border-input bg-background text-sm">
-              <option value="">📂 All Types</option>
-              ${taskTypes.map(t => `<option value="${t}">${t}</option>`).join('')}
-            </select>
-            <select id="task-filter-due" class="h-9 px-2 rounded-lg border border-input bg-background text-sm">
-              <option value="">📅 All Dates</option>
-              <option value="overdue">⚠️ Overdue</option>
-              <option value="today">Today</option>
-              <option value="week">This Week</option>
-              <option value="month">This Month</option>
-            </select>
-            <div class="flex items-center gap-2 ml-auto">
-              <span id="task-selected-label" class="text-xs text-muted-foreground hidden"><span id="task-selected-count">0</span> selected</span>
-              <button id="task-mass-delete-btn" onclick="window.massDeleteTasks()" class="hidden h-9 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-semibold hover:bg-destructive/90 transition-colors">
-                🗑️ Delete Selected
-              </button>
-              <button onclick="window.openTaskModal()" class="h-9 px-4 bg-primary text-primary-foreground rounded-lg text-sm font-bold hover:bg-primary/90 transition-colors shadow-sm">＋ New Task</button>
+          <div class="bg-card border border-border rounded-2xl px-4 py-3 shadow-sm space-y-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <input type="text" id="task-search" placeholder="🔍 Search tasks..." class="h-9 px-3 rounded-lg border border-input bg-background text-sm w-44 focus:outline-none focus:ring-1 focus:ring-ring">
+              ${isAdmin ? '' : `<select id="task-filter-status" class="h-9 px-2 rounded-lg border border-input bg-background text-sm">
+                <option value="">⚡ All Status</option>
+                ${allStatuses.map(s => `<option value="${s}">${s}</option>`).join('')}
+                <option value="__overdue__">⚠️ Overdue</option>
+              </select>`}
+              <select id="task-filter-project" class="h-9 px-2 rounded-lg border border-input bg-background text-sm">
+                <option value="">📁 All Projects</option>
+                ${state.projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+              </select>
+              <select id="task-filter-type" class="h-9 px-2 rounded-lg border border-input bg-background text-sm">
+                <option value="">📂 All Types</option>
+                ${taskTypes.map(t => `<option value="${t}">${t}</option>`).join('')}
+              </select>
+              <select id="task-filter-due" class="h-9 px-2 rounded-lg border border-input bg-background text-sm">
+                <option value="">📅 All Dates</option>
+                <option value="overdue">⚠️ Overdue</option>
+                <option value="today">Today</option>
+                <option value="week">This Week</option>
+                <option value="month">This Month</option>
+              </select>
+              <div class="flex items-center gap-2 ml-auto">
+                <span id="task-selected-label" class="text-xs text-muted-foreground hidden"><span id="task-selected-count">0</span> selected</span>
+                <button id="task-mass-delete-btn" onclick="window.massDeleteTasks()" class="hidden h-9 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-semibold hover:bg-destructive/90 transition-colors">
+                  🗑️ Delete Selected
+                </button>
+                <button onclick="window.openTaskModal()" class="h-9 px-4 bg-primary text-primary-foreground rounded-lg text-sm font-bold hover:bg-primary/90 transition-colors shadow-sm">＋ New Task</button>
+              </div>
             </div>
+            ${isAdmin ? `
+            <!-- Admin multi-status checkboxes -->
+            <div class="flex flex-wrap items-center gap-1.5 pt-1 border-t border-border">
+              <span class="text-xs text-muted-foreground font-semibold mr-1">Filter Status:</span>
+              ${[...allStatuses, 'Overdue'].map(s => {
+                const colors = {Open:'bg-blue-50 text-blue-700 border-blue-200','In Progress':'bg-yellow-50 text-yellow-700 border-yellow-200','For Review':'bg-purple-50 text-purple-700 border-purple-200',Completed:'bg-green-50 text-green-700 border-green-200',Closed:'bg-gray-50 text-gray-600 border-gray-200',Cancelled:'bg-red-50 text-red-600 border-red-200',Overdue:'bg-orange-50 text-orange-700 border-orange-200'};
+                const cls = colors[s]||'bg-muted text-foreground border-border';
+                return `<label class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border cursor-pointer hover:opacity-80 transition-opacity text-xs font-semibold ${cls} admin-status-filter-label">
+                  <input type="checkbox" class="admin-status-cb w-3 h-3" value="${s}" onchange="filterTasks()" checked>
+                  ${s==='Overdue'?'⚠️ ':''} ${s}
+                </label>`;
+              }).join('')}
+              <button onclick="window.toggleAllStatusFilters(true)" class="text-xs text-primary hover:underline ml-1">All</button>
+              <button onclick="window.toggleAllStatusFilters(false)" class="text-xs text-muted-foreground hover:underline">None</button>
+            </div>` : ''}
           </div>
           <!-- Table -->
           <div class="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
@@ -1850,9 +1869,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
       `;
       $('content-area').innerHTML = html;
       $('task-search').addEventListener('input', filterTasks);
-      $('task-filter-status').addEventListener('change', filterTasks);
-      $('task-filter-project').addEventListener('change', filterTasks);
-      $('task-filter-type').addEventListener('change', filterTasks);
+      const statusFilt = $('task-filter-status'); if(statusFilt) statusFilt.addEventListener('change', filterTasks);
+      const projFilt = $('task-filter-project'); if(projFilt) projFilt.addEventListener('change', filterTasks);
+      const typeFilt = $('task-filter-type'); if(typeFilt) typeFilt.addEventListener('change', filterTasks);
       const dueFilt = $('task-filter-due'); if(dueFilt) dueFilt.addEventListener('change', filterTasks);
     }
 
@@ -1942,17 +1961,34 @@ document.addEventListener('DOMContentLoaded', ()=>{
       );
     }
 
+    window.toggleAllStatusFilters = function(checked) {
+      document.querySelectorAll('.admin-status-cb').forEach(cb => cb.checked = checked);
+      filterTasks();
+    };
+
     function filterTasks() {
+      const isAdmin = state.currentUserDoc?.role === 'admin';
       const search = ($('task-search')?.value || '').toLowerCase();
-      const status = $('task-filter-status')?.value || '';
       const project = $('task-filter-project')?.value || '';
       const type = $('task-filter-type')?.value || '';
       const due = $('task-filter-due')?.value || '';
       const now = new Date(); now.setHours(0,0,0,0);
+
+      // Admin: collect checked status values (including 'Overdue' pseudo-status)
+      let adminCheckedStatuses = null, adminCheckOverdue = false;
+      if (isAdmin) {
+        adminCheckedStatuses = new Set();
+        document.querySelectorAll('.admin-status-cb:checked').forEach(cb => {
+          if (cb.value === 'Overdue') adminCheckOverdue = true;
+          else adminCheckedStatuses.add(cb.value);
+        });
+      }
+      // Non-admin: single select
+      const singleStatus = !isAdmin ? ($('task-filter-status')?.value || '') : '';
+
       const filtered = getVisibleTasks().filter(t => {
         const hay = `${t.title} ${t.description || ''}`.toLowerCase();
         if (!hay.includes(search)) return false;
-        if (status && t.status !== status) return false;
         if (project && t.projectId !== project) return false;
         if (type && t.taskType !== type) return false;
         if (due) {
@@ -1963,6 +1999,18 @@ document.addEventListener('DOMContentLoaded', ()=>{
           if (due === 'today' && diff !== 0) return false;
           if (due === 'week' && (diff < 0 || diff > 7)) return false;
           if (due === 'month' && (diff < 0 || diff > 30)) return false;
+        }
+        if (isAdmin && adminCheckedStatuses !== null) {
+          const isOverdue = t.dueDate && new Date(t.dueDate) < now && t.status !== 'Completed' && t.status !== 'Closed';
+          const matchStatus = adminCheckedStatuses.has(t.status);
+          const matchOverdue = adminCheckOverdue && isOverdue;
+          if (!matchStatus && !matchOverdue) return false;
+        }
+        if (!isAdmin && singleStatus) {
+          if (singleStatus === '__overdue__') {
+            const d = t.dueDate ? new Date(t.dueDate) : null;
+            if (!d || d >= now || t.status === 'Completed' || t.status === 'Closed') return false;
+          } else if (t.status !== singleStatus) return false;
         }
         return true;
       });
@@ -4601,99 +4649,75 @@ document.addEventListener('DOMContentLoaded', ()=>{
     };
 
 
+
     /***********************
      * MEETINGS MODULE
      ***********************/
     function renderMeetings() {
-      const isAdmin = state.currentUserDoc?.role === 'admin';
       const meetings = state.meetings || [];
-
       const html = `
         <div class="max-w-6xl mx-auto space-y-5 animate-slide-in">
-          <!-- Header -->
           <div class="bg-gradient-to-r from-cyan-500/15 via-primary/10 to-transparent border border-border rounded-2xl p-6">
             <div class="flex items-center justify-between">
               <div>
-                <h2 class="text-xl font-black flex items-center gap-2">📅 Meetings & Minutes</h2>
-                <p class="text-sm text-muted-foreground mt-0.5">${meetings.length} recorded meetings · Official minutes repository</p>
+                <h2 class="text-xl font-black flex items-center gap-2">📅 Meetings</h2>
+                <p class="text-sm text-muted-foreground mt-0.5">${meetings.length} meeting${meetings.length!==1?'s':''} recorded</p>
               </div>
-              <button onclick="window.openNewMeetingModal()" class="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm shadow hover:shadow-md hover:bg-primary/90 transition-all">
-                ＋ New Meeting
-              </button>
+              <button onclick="window.openNewMeetingModal()" class="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm shadow hover:bg-primary/90 transition-all">＋ New Meeting</button>
             </div>
           </div>
-
-          <!-- Filter bar -->
           <div class="flex gap-3 flex-wrap items-center bg-card border border-border rounded-2xl px-4 py-3">
-            <input id="mtg-search" type="text" placeholder="🔍 Search meetings..."
-              oninput="window.filterMeetings()"
+            <input id="mtg-search" type="text" placeholder="🔍 Search meetings..." oninput="window.filterMeetings()"
               class="h-9 px-3 rounded-lg border border-input bg-background text-sm flex-1 min-w-[180px] focus:outline-none focus:ring-1 focus:ring-ring">
             <select id="mtg-type-filter" onchange="window.filterMeetings()" class="h-9 px-3 rounded-lg border border-input bg-background text-sm">
               <option value="">All Types</option>
-              ${(state.settings.meetingTypes||['Regular Meeting','Emergency Meeting','Board Meeting','Planning Session','Review Meeting']).map(t=>`<option>${t}</option>`).join('')}
+              <option>Internal</option>
+              <option>External</option>
             </select>
             <select id="mtg-sort" onchange="window.filterMeetings()" class="h-9 px-3 rounded-lg border border-input bg-background text-sm">
               <option value="newest">Newest First</option>
               <option value="oldest">Oldest First</option>
             </select>
           </div>
-
-          <!-- Meetings grid -->
           <div id="mtg-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             ${renderMeetingCards(meetings)}
           </div>
-          ${!meetings.length ? `
-            <div class="text-center py-20 text-muted-foreground">
-              <div class="text-6xl mb-4">📅</div>
-              <p class="font-bold text-lg">No meetings recorded yet</p>
-              <p class="text-sm mt-1">Create your first meeting to start tracking minutes</p>
-            </div>` : ''}
+          ${!meetings.length ? `<div class="text-center py-20 text-muted-foreground"><div class="text-6xl mb-4">📅</div><p class="font-bold text-lg">No meetings yet</p><p class="text-sm mt-1">Click "＋ New Meeting" to create one</p></div>` : ''}
         </div>
       `;
       $('content-area').innerHTML = html;
     }
 
     function renderMeetingCards(meetings) {
-      const typeColors = {
-        'Regular Meeting':   'bg-blue-500',
-        'Emergency Meeting': 'bg-red-500',
-        'Board Meeting':     'bg-purple-500',
-        'Planning Session':  'bg-green-500',
-        'Review Meeting':    'bg-orange-500',
-      };
+      const typeColors = { Internal:'bg-blue-500', External:'bg-emerald-500' };
       return meetings.map(m => {
-        const typeColor = typeColors[m.meetingType] || 'bg-muted-foreground';
-        const attendeesList = m.attendeesList || [];
-        const attendeeCount = attendeesList.length || (m.attendees||[]).length;
-        const hasMinutes = !!(m.minutesContent || m.minutesFileUrl);
+        const typeColor = typeColors[m.meetingType]||'bg-slate-500';
+        const attendeeCount = (m.attendeesList||[]).length;
+        const allDay = m.allDay;
+        const timeStr = allDay ? 'All Day' : [m.startTime, m.endTime].filter(Boolean).join(' – ');
+        const agendaItems = (m.agendaItems||[]).map(a => typeof a==='object' ? a : {topic:a,description:''});
         return `
-          <div class="bg-card border border-border rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all cursor-pointer group" onclick="window.viewMeeting('${m.id}')">
+          <div onclick="window.viewMeeting('${m.id}')"
+            class="bg-card border border-border rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all cursor-pointer group">
+            <div class="h-1.5 ${typeColor}"></div>
             <div class="p-5">
-              <div class="flex items-start justify-between mb-3">
+              <div class="flex items-start justify-between mb-2">
                 <span class="text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full text-white ${typeColor}">${m.meetingType||'Meeting'}</span>
-                ${hasMinutes ? '<span class="text-[10px] text-green-600 font-bold bg-green-50 dark:bg-green-900/20 px-2 py-0.5 rounded-full border border-green-200 dark:border-green-800">✓ Minutes</span>' : '<span class="text-[10px] text-orange-500 font-medium bg-orange-50 dark:bg-orange-900/20 px-2 py-0.5 rounded-full border border-orange-200 dark:border-orange-800">Pending</span>'}
+                <span class="text-[10px] text-muted-foreground">${m.meetingDate ? new Date(m.meetingDate+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'}</span>
               </div>
               <h4 class="font-bold text-base mb-1 group-hover:text-primary transition-colors line-clamp-2">${m.title}</h4>
-              <div class="flex flex-wrap gap-2 text-xs text-muted-foreground mb-3">
-                <span>📅 ${m.meetingDate ? new Date(m.meetingDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'}</span>
-                <span>🕐 ${m.startTime||''} ${m.endTime?'– '+m.endTime:''}</span>
-                ${m.location ? `<span>📍 ${m.location}</span>` : ''}
-              </div>
-              <div class="flex items-center gap-2 text-xs text-muted-foreground">
-                <div class="flex -space-x-1">
-                  ${attendeesList.slice(0,4).map(a=>`<div class="w-6 h-6 rounded-full bg-primary/20 border-2 border-card flex items-center justify-center text-[9px] font-bold text-primary">${(a.name||'?').charAt(0).toUpperCase()}</div>`).join('')}
-                  ${attendeeCount > 4 ? `<div class="w-6 h-6 rounded-full bg-muted border-2 border-card flex items-center justify-center text-[9px] font-bold">+${attendeeCount-4}</div>` : ''}
-                </div>
-                <span>${attendeeCount} attendee${attendeeCount!==1?'s':''}</span>
+              <div class="space-y-1 text-xs text-muted-foreground mt-2">
+                ${timeStr ? `<div class="flex items-center gap-1.5">🕐 <span>${timeStr}</span></div>` : ''}
+                ${m.location ? `<div class="flex items-center gap-1.5">📍 <span>${m.location}</span></div>` : ''}
+                ${attendeeCount ? `<div class="flex items-center gap-1.5">👥 <span>${attendeeCount} attendee${attendeeCount!==1?'s':''}</span></div>` : ''}
               </div>
             </div>
-            ${m.agendaItems?.length ? `
-            <div class="border-t border-border px-5 py-3 bg-muted/20">
-              <p class="text-[10px] text-muted-foreground uppercase font-semibold tracking-wide mb-1">Agenda</p>
-              <p class="text-xs text-foreground/70 line-clamp-2">${(m.agendaItems||[]).map((a,i)=>`${i+1}. ${a}`).join(' · ')}</p>
+            ${agendaItems.length ? `
+            <div class="border-t border-border px-5 py-2.5 bg-muted/20">
+              <p class="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide mb-1">Agenda</p>
+              <p class="text-xs text-foreground/70 line-clamp-1">${agendaItems.map((a,i)=>`${i+1}. ${a.topic||''}`).join(' · ')}</p>
             </div>` : ''}
-          </div>
-        `;
+          </div>`;
       }).join('');
     }
 
@@ -4702,13 +4726,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const type = $('mtg-type-filter')?.value||'';
       const sort = $('mtg-sort')?.value||'newest';
       let filtered = (state.meetings||[]).filter(m => {
-        const hay = `${m.title} ${m.meetingType} ${m.location||''} ${(m.agendaItems||[]).join(' ')}`.toLowerCase();
+        const agendaText = (m.agendaItems||[]).map(a=>typeof a==='object'?a.topic:a).join(' ');
+        const hay = `${m.title} ${m.meetingType||''} ${m.location||''} ${agendaText}`.toLowerCase();
         return hay.includes(q) && (!type || m.meetingType===type);
       });
-      filtered.sort((a,b) => {
-        const da = new Date(a.meetingDate||''), db = new Date(b.meetingDate||'');
-        return sort==='oldest' ? da-db : db-da;
-      });
+      filtered.sort((a,b)=>{const da=new Date(a.meetingDate||''),db=new Date(b.meetingDate||'');return sort==='oldest'?da-db:db-da;});
       const grid = $('mtg-grid');
       if (grid) grid.innerHTML = renderMeetingCards(filtered);
     };
@@ -4716,217 +4738,185 @@ document.addEventListener('DOMContentLoaded', ()=>{
     window.openNewMeetingModal = function(meetingId=null) {
       const m = meetingId ? (state.meetings||[]).find(x=>x.id===meetingId) : null;
       const isEdit = !!m;
+      const allDay = m?.allDay || false;
 
-      // Build datetime value: combine date + time for datetime-local input
-      const mtgDateVal = m?.meetingDate || '';
-      const mtgStartVal = m?.startTime || '';
-      const mtgEndVal = m?.endTime || '';
-      const dtStart = mtgDateVal && mtgStartVal ? `${mtgDateVal}T${mtgStartVal}` : (mtgDateVal ? `${mtgDateVal}T08:00` : '');
-      const dtEnd = mtgDateVal && mtgEndVal ? `${mtgDateVal}T${mtgEndVal}` : '';
+      // Agenda rows – normalise to {topic, description}
+      const agendaData = (m?.agendaItems||[{topic:'',description:''},{topic:'',description:''}]).map(a =>
+        typeof a==='string' ? {topic:a,description:''} : (a||{})
+      );
+      const agendaRows = agendaData.map((a,i) => `
+        <tr class="agenda-item-row">
+          <td class="px-2 py-1.5 text-center text-xs text-muted-foreground font-bold">${i+1}</td>
+          <td class="px-2 py-1.5"><input class="ai-topic w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" value="${(a.topic||'').replace(/"/g,'&quot;')}" placeholder="Agenda topic..."></td>
+          <td class="px-2 py-1.5"><input class="ai-desc w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" value="${(a.description||'').replace(/"/g,'&quot;')}" placeholder="Description (optional)"></td>
+          <td class="px-2 py-1.5 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive hover:text-destructive/80 text-sm px-1">✕</button></td>
+        </tr>`).join('');
 
-      const agendaItems = (m?.agendaItems||['','']).map((a,i)=>`
-        <div class="flex gap-2 items-center agenda-item">
-          <span class="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">${i+1}</span>
-          <input type="text" value="${a}" placeholder="Agenda item ${i+1}..." class="agenda-input flex-1 h-9 px-3 rounded-lg border border-input bg-background text-sm">
-          <button onclick="this.closest('.agenda-item').remove()" class="text-destructive hover:text-destructive/80 px-1">✕</button>
-        </div>
-      `).join('');
-
-      const savedAttendees = m?.attendeesList || [];
-      const initRows = savedAttendees.length > 0 ? savedAttendees : [{name:'',position:'',department:''}];
-      const attendeeRows = initRows.map((a,i) => `
+      // Attendee rows
+      const attData = (m?.attendeesList||[{name:'',position:'',department:''},{name:'',position:'',department:''}]);
+      const attendeeRows = attData.map((a,i) => `
         <tr class="attendee-row">
           <td class="px-2 py-1.5 text-center text-xs text-muted-foreground font-bold">${i+1}</td>
           <td class="px-2 py-1.5"><input class="att-name w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" value="${(a.name||'').replace(/"/g,'&quot;')}" placeholder="Full name"></td>
           <td class="px-2 py-1.5"><input class="att-position w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" value="${(a.position||'').replace(/"/g,'&quot;')}" placeholder="Position/Title"></td>
           <td class="px-2 py-1.5"><input class="att-dept w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" value="${(a.department||'').replace(/"/g,'&quot;')}" placeholder="Department/Org"></td>
           <td class="px-2 py-1.5 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive hover:text-destructive/80 text-sm px-1">✕</button></td>
-        </tr>
-      `).join('');
-
-      const savedActions = m?.actionItems || [];
-      const actionRows = savedActions.map((a,i) => `
-        <tr class="action-item-row">
-          <td class="px-2 py-1.5 font-bold text-muted-foreground text-xs text-center">${i+1}</td>
-          <td class="px-2 py-1.5"><input class="ai-details w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${(a.details||'').replace(/"/g,'&quot;')}" placeholder="Item details..."></td>
-          <td class="px-2 py-1.5"><input class="ai-action w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${(a.action||'').replace(/"/g,'&quot;')}" placeholder="Action required..."></td>
-          <td class="px-2 py-1.5"><input class="ai-due type=date w-full h-7 px-2 rounded border border-input bg-background text-xs" type="date" value="${a.dueDate||''}"></td>
-          <td class="px-2 py-1.5"><input class="ai-resp w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${(a.responsible||'').replace(/"/g,'&quot;')}" placeholder="Person..."></td>
-          <td class="px-2 py-1.5 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive hover:text-destructive/80 p-1">×</button></td>
-        </tr>`).join('');
-
-      const savedNextSteps = m?.nextSteps || [];
-      const nextStepRows = savedNextSteps.map((s,i) => `
-        <tr class="next-step-row">
-          <td class="px-2 py-1.5 font-bold text-muted-foreground text-xs text-center">${i+1}</td>
-          <td class="px-2 py-1.5"><input class="ns-details w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${(s.details||'').replace(/"/g,'&quot;')}" placeholder="Step description..."></td>
-          <td class="px-2 py-1.5"><input class="ns-owner w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${(s.owner||'').replace(/"/g,'&quot;')}" placeholder="Owner..."></td>
-          <td class="px-2 py-1.5"><input type="date" class="ns-due w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${s.dueDate||''}"></td>
-          <td class="px-2 py-1.5"><select class="ns-status w-full h-7 px-2 rounded border border-input bg-background text-xs"><option ${(s.status||'Pending')==='Pending'?'selected':''}>Pending</option><option ${s.status==='In Progress'?'selected':''}>In Progress</option><option ${s.status==='Done'?'selected':''}>Done</option></select></td>
-          <td class="px-2 py-1.5 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive hover:text-destructive/80 p-1">×</button></td>
         </tr>`).join('');
 
       showModal(`
-        <div class="p-6 border-b border-border flex justify-between items-center bg-muted/30 rounded-t-xl">
+        <div class="p-5 border-b border-border flex justify-between items-center bg-muted/30 rounded-t-xl">
           <h3 class="font-bold text-lg">${isEdit?'✏️ Edit Meeting':'📅 New Meeting'}</h3>
           <button onclick="closeModal()" class="text-muted-foreground hover:text-foreground">✕</button>
         </div>
-        <div class="p-6 space-y-5 overflow-y-auto max-h-[75vh]">
-          <!-- Title + Type -->
-          <div class="grid grid-cols-2 gap-4">
-            <div class="col-span-2">
-              <label class="block text-sm font-semibold mb-1">Meeting Title <span class="text-destructive">*</span></label>
-              <input id="mtg-title" value="${m?.title||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="e.g. Q3 Planning Session">
+        <div class="p-6 space-y-6 overflow-y-auto max-h-[78vh]">
+
+          <!-- Meeting Details -->
+          <div>
+            <p class="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">📋 Meeting Details</p>
+            <div class="space-y-3">
+              <div>
+                <label class="block text-sm font-semibold mb-1">Meeting Title <span class="text-destructive">*</span></label>
+                <input id="mtg-title" value="${m?.title||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="e.g. Q3 Planning Session">
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-sm font-semibold mb-1">Date <span class="text-destructive">*</span></label>
+                  <input id="mtg-date" type="date" value="${m?.meetingDate||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
+                </div>
+                <div class="flex items-end pb-1">
+                  <label class="flex items-center gap-2 cursor-pointer select-none">
+                    <input type="checkbox" id="mtg-allday" ${allDay?'checked':''} onchange="window.toggleMtgAllDay(this.checked)" class="w-4 h-4 rounded border-input accent-primary">
+                    <span class="text-sm font-semibold">All Day</span>
+                  </label>
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-3" id="mtg-time-fields" ${allDay?'style="opacity:.4;pointer-events:none"':''}>
+                <div>
+                  <label class="block text-sm font-semibold mb-1">From (Start Time) <span class="text-destructive">*</span></label>
+                  <input id="mtg-start-time" type="time" value="${m?.startTime||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
+                </div>
+                <div>
+                  <label class="block text-sm font-semibold mb-1">To (End Time)</label>
+                  <input id="mtg-end-time" type="time" value="${m?.endTime||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
+                </div>
+              </div>
             </div>
-            <div>
-              <label class="block text-sm font-semibold mb-1">Type <span class="text-destructive">*</span></label>
-              <select id="mtg-type" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
-                ${['Regular Meeting','Emergency Meeting','Board Meeting','Planning Session','Review Meeting'].map(t=>`<option ${m?.meetingType===t?'selected':''}>${t}</option>`).join('')}
-              </select>
+          </div>
+
+          <!-- Classification -->
+          <div>
+            <p class="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">🏷️ Classification</p>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-semibold mb-1">Type <span class="text-destructive">*</span></label>
+                <div class="flex gap-2">
+                  <label class="flex-1 flex items-center justify-center gap-1.5 p-2.5 rounded-xl border-2 cursor-pointer transition-all text-sm font-semibold ${(m?.meetingType||'Internal')==='Internal'?'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700':'border-border hover:border-blue-300'}" id="mtg-type-internal-lbl">
+                    <input type="radio" name="mtg-type-radio" value="Internal" class="hidden" ${(m?.meetingType||'Internal')==='Internal'?'checked':''} onchange="window.selectMtgType('Internal')">
+                    🏢 Internal
+                  </label>
+                  <label class="flex-1 flex items-center justify-center gap-1.5 p-2.5 rounded-xl border-2 cursor-pointer transition-all text-sm font-semibold ${m?.meetingType==='External'?'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700':'border-border hover:border-emerald-300'}" id="mtg-type-external-lbl">
+                    <input type="radio" name="mtg-type-radio" value="External" class="hidden" ${m?.meetingType==='External'?'checked':''} onchange="window.selectMtgType('External')">
+                    🌐 External
+                  </label>
+                </div>
+                <input type="hidden" id="mtg-type" value="${m?.meetingType||'Internal'}">
+              </div>
+              <div>
+                <label class="block text-sm font-semibold mb-1">Location / Platform <span class="text-destructive">*</span></label>
+                <input id="mtg-location" value="${m?.location||''}" list="mtg-location-list" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="e.g. Meeting Room, Zoom, Teams">
+                <datalist id="mtg-location-list">
+                  <option>Meeting Room A</option><option>Meeting Room B</option>
+                  <option>Zoom</option><option>Google Meet</option><option>MS Teams</option><option>Webex</option>
+                </datalist>
+              </div>
             </div>
+          </div>
+
+          <!-- Roles -->
+          <div>
+            <p class="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">👤 Meeting Roles</p>
             <div>
-              <label class="block text-sm font-semibold mb-1">Location / Platform <span class="text-destructive">*</span></label>
-              <input id="mtg-location" value="${m?.location||''}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm" placeholder="e.g. Zoom / Conference Room A">
-            </div>
-            <div>
-              <label class="block text-sm font-semibold mb-1">Start Date & Time <span class="text-destructive">*</span></label>
-              <input id="mtg-start-dt" type="datetime-local" value="${dtStart}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
-            </div>
-            <div>
-              <label class="block text-sm font-semibold mb-1">End Date & Time <span class="text-destructive">*</span></label>
-              <input id="mtg-end-dt" type="datetime-local" value="${dtEnd}" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
-            </div>
-            <div>
-              <label class="block text-sm font-semibold mb-1">Facilitator <span class="text-destructive">*</span></label>
-              <select id="mtg-facilitator" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
-                <option value="">— Select —</option>
-                ${state.users.filter(u=>u.status!=='inactive').map(u=>`<option value="${u.id}" ${m?.facilitatorId===u.id?'selected':''}>${u.name||u.email}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <label class="block text-sm font-semibold mb-1">Minutes Taker <span class="text-destructive">*</span></label>
+              <label class="block text-sm font-semibold mb-1">Minute Taker <span class="text-destructive">*</span></label>
               <select id="mtg-secretary" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm">
-                <option value="">— Select —</option>
+                <option value="">— Select Minute Taker —</option>
                 ${state.users.filter(u=>u.status!=='inactive').map(u=>`<option value="${u.id}" ${m?.secretaryId===u.id?'selected':''}>${u.name||u.email}</option>`).join('')}
               </select>
             </div>
           </div>
 
-          <!-- Agenda -->
+          <!-- Agenda Items -->
           <div>
-            <div class="flex items-center justify-between mb-2">
-              <label class="text-sm font-semibold">📋 Agenda Items <span class="text-destructive">*</span></label>
-              <button onclick="window.addAgendaItem()" class="text-xs text-primary hover:underline">＋ Add Item</button>
+            <p class="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">📋 Agenda Items <span class="text-destructive">*</span></p>
+            <div class="border border-border rounded-xl overflow-hidden">
+              <table class="w-full text-xs">
+                <thead class="bg-muted/40 border-b border-border">
+                  <tr>
+                    <th class="px-2 py-2 text-center w-8 text-muted-foreground">#</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Agenda Topic</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Description</th>
+                    <th class="px-2 py-2 w-8"></th>
+                  </tr>
+                </thead>
+                <tbody id="mtg-agenda-body" class="divide-y divide-border">${agendaRows}</tbody>
+              </table>
             </div>
-            <div id="agenda-container" class="space-y-2">${agendaItems}</div>
+            <button onclick="window.addMtgAgendaRow()" class="mt-2 text-xs text-primary hover:underline font-medium">＋ Add Agenda Item</button>
           </div>
 
-          <!-- Attendees Table -->
+          <!-- Attendees -->
           <div>
-            <div class="flex items-center justify-between mb-2">
-              <label class="text-sm font-semibold">👥 Attendees <span class="text-destructive">*</span></label>
-              <button onclick="window.addAttendeeRow()" class="text-xs text-primary hover:underline font-medium">＋ Add Row</button>
-            </div>
+            <p class="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">👥 Attendees <span class="text-destructive">*</span></p>
             <div class="border border-border rounded-xl overflow-hidden">
               <table class="w-full text-xs">
                 <thead class="bg-muted/40 border-b border-border">
                   <tr>
                     <th class="px-2 py-2 text-center w-8 text-muted-foreground">#</th>
                     <th class="px-2 py-2 text-left text-muted-foreground">Full Name</th>
-                    <th class="px-2 py-2 text-left text-muted-foreground">Position / Title</th>
-                    <th class="px-2 py-2 text-left text-muted-foreground">Department / Org</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Position</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Department</th>
                     <th class="px-2 py-2 w-8"></th>
                   </tr>
                 </thead>
-                <tbody id="attendee-table-body">${attendeeRows}</tbody>
+                <tbody id="attendee-table-body" class="divide-y divide-border">${attendeeRows}</tbody>
               </table>
             </div>
+            <button onclick="window.addAttendeeRow()" class="mt-2 text-xs text-primary hover:underline font-medium">＋ Add Attendee</button>
           </div>
 
-          <!-- Action Items -->
-          <div>
-            <div class="flex items-center justify-between mb-2">
-              <label class="text-sm font-semibold">⚡ Action Items</label>
-              <button onclick="window.addMtgActionItem()" class="text-xs text-primary hover:underline font-medium">＋ Add Item</button>
-            </div>
-            <div class="border border-border rounded-xl overflow-hidden">
-              <table class="w-full text-xs">
-                <thead class="bg-muted/40 border-b border-border">
-                  <tr>
-                    <th class="px-2 py-2 text-center w-8 text-muted-foreground">#</th>
-                    <th class="px-2 py-2 text-left text-muted-foreground">Item Details</th>
-                    <th class="px-2 py-2 text-left text-muted-foreground">Action Required</th>
-                    <th class="px-2 py-2 text-left text-muted-foreground">Due Date</th>
-                    <th class="px-2 py-2 text-left text-muted-foreground">Responsible</th>
-                    <th class="px-2 py-2 w-8"></th>
-                  </tr>
-                </thead>
-                <tbody id="mtg-action-items-body" class="divide-y divide-border">${actionRows}</tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- Next Steps -->
-          <div>
-            <div class="flex items-center justify-between mb-2">
-              <label class="text-sm font-semibold">🔜 Next Steps</label>
-              <button onclick="window.addMtgNextStep()" class="text-xs text-primary hover:underline font-medium">＋ Add Step</button>
-            </div>
-            <div class="border border-border rounded-xl overflow-hidden">
-              <table class="w-full text-xs">
-                <thead class="bg-muted/40 border-b border-border">
-                  <tr>
-                    <th class="px-2 py-2 text-center w-8 text-muted-foreground">#</th>
-                    <th class="px-2 py-2 text-left text-muted-foreground">Step Description</th>
-                    <th class="px-2 py-2 text-left text-muted-foreground">Owner</th>
-                    <th class="px-2 py-2 text-left text-muted-foreground">Due Date</th>
-                    <th class="px-2 py-2 text-left text-muted-foreground">Status</th>
-                    <th class="px-2 py-2 w-8"></th>
-                  </tr>
-                </thead>
-                <tbody id="mtg-next-steps-body" class="divide-y divide-border">${nextStepRows}</tbody>
-              </table>
-            </div>
-          </div>
         </div>
         <div class="p-5 border-t border-border bg-muted/30 flex justify-end gap-2">
           <button onclick="closeModal()" class="px-4 py-2 rounded-xl border border-border text-sm">Cancel</button>
-          <button onclick="window.saveMeeting('${meetingId||''}')" class="px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-bold">
+          <button onclick="window.saveMeeting('${meetingId||''}')" class="px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-bold shadow-sm">
             ${isEdit?'💾 Save Changes':'📅 Create Meeting'}
           </button>
         </div>
       `);
     };
 
-    window.addMtgActionItem = function() {
-      const tbody = $('mtg-action-items-body');
-      if (!tbody) return;
-      const rowNum = tbody.querySelectorAll('.action-item-row').length + 1;
-      const tr = document.createElement('tr');
-      tr.className = 'action-item-row';
-      tr.innerHTML = `
-        <td class="px-2 py-1.5 font-bold text-muted-foreground text-xs text-center">${rowNum}</td>
-        <td class="px-2 py-1.5"><input class="ai-details w-full h-7 px-2 rounded border border-input bg-background text-xs" placeholder="Item details..."></td>
-        <td class="px-2 py-1.5"><input class="ai-action w-full h-7 px-2 rounded border border-input bg-background text-xs" placeholder="Action required..."></td>
-        <td class="px-2 py-1.5"><input type="date" class="ai-due w-full h-7 px-2 rounded border border-input bg-background text-xs"></td>
-        <td class="px-2 py-1.5"><input class="ai-resp w-full h-7 px-2 rounded border border-input bg-background text-xs" placeholder="Person..."></td>
-        <td class="px-2 py-1.5 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive p-1">×</button></td>`;
-      tbody.appendChild(tr);
+    window.selectMtgType = function(val) {
+      const el = document.getElementById('mtg-type'); if(el) el.value = val;
+      const intLbl = document.getElementById('mtg-type-internal-lbl');
+      const extLbl = document.getElementById('mtg-type-external-lbl');
+      if(intLbl) intLbl.className = `flex-1 flex items-center justify-center gap-1.5 p-2.5 rounded-xl border-2 cursor-pointer transition-all text-sm font-semibold ${val==='Internal'?'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700':'border-border hover:border-blue-300'}`;
+      if(extLbl) extLbl.className = `flex-1 flex items-center justify-center gap-1.5 p-2.5 rounded-xl border-2 cursor-pointer transition-all text-sm font-semibold ${val==='External'?'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700':'border-border hover:border-emerald-300'}`;
     };
 
-    window.addMtgNextStep = function() {
-      const tbody = $('mtg-next-steps-body');
+    window.toggleMtgAllDay = function(checked) {
+      const tf = document.getElementById('mtg-time-fields');
+      if (tf) { tf.style.opacity = checked ? '0.4' : '1'; tf.style.pointerEvents = checked ? 'none' : ''; }
+    };
+
+    window.addMtgAgendaRow = function() {
+      const tbody = $('mtg-agenda-body');
       if (!tbody) return;
-      const rowNum = tbody.querySelectorAll('.next-step-row').length + 1;
+      const rowNum = tbody.querySelectorAll('.agenda-item-row').length + 1;
       const tr = document.createElement('tr');
-      tr.className = 'next-step-row';
+      tr.className = 'agenda-item-row';
       tr.innerHTML = `
-        <td class="px-2 py-1.5 font-bold text-muted-foreground text-xs text-center">${rowNum}</td>
-        <td class="px-2 py-1.5"><input class="ns-details w-full h-7 px-2 rounded border border-input bg-background text-xs" placeholder="Step description..."></td>
-        <td class="px-2 py-1.5"><input class="ns-owner w-full h-7 px-2 rounded border border-input bg-background text-xs" placeholder="Owner..."></td>
-        <td class="px-2 py-1.5"><input type="date" class="ns-due w-full h-7 px-2 rounded border border-input bg-background text-xs"></td>
-        <td class="px-2 py-1.5"><select class="ns-status w-full h-7 px-2 rounded border border-input bg-background text-xs"><option>Pending</option><option>In Progress</option><option>Done</option></select></td>
-        <td class="px-2 py-1.5 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive p-1">×</button></td>`;
+        <td class="px-2 py-1.5 text-center text-xs text-muted-foreground font-bold">${rowNum}</td>
+        <td class="px-2 py-1.5"><input class="ai-topic w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" placeholder="Agenda topic..."></td>
+        <td class="px-2 py-1.5"><input class="ai-desc w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" placeholder="Description (optional)"></td>
+        <td class="px-2 py-1.5 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive text-sm px-1">✕</button></td>`;
       tbody.appendChild(tr);
     };
 
@@ -4941,32 +4931,32 @@ document.addEventListener('DOMContentLoaded', ()=>{
         <td class="px-2 py-1"><input class="att-name w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" placeholder="Full name"></td>
         <td class="px-2 py-1"><input class="att-position w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" placeholder="Position/Title"></td>
         <td class="px-2 py-1"><input class="att-dept w-full h-8 px-2 rounded-lg border border-input bg-background text-xs" placeholder="Department/Org"></td>
-        <td class="px-2 py-1 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive text-sm px-1">✕</button></td>
-      `;
+        <td class="px-2 py-1 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive text-sm px-1">✕</button></td>`;
       tbody.appendChild(tr);
     };
 
     window.saveMeeting = async function(meetingId='') {
       const title = $('mtg-title')?.value?.trim();
-      const startDt = $('mtg-start-dt')?.value;
-      const endDt = $('mtg-end-dt')?.value;
+      const meetingDate = $('mtg-date')?.value;
+      const allDay = $('mtg-allday')?.checked || false;
+      const startTime = allDay ? '' : ($('mtg-start-time')?.value||'');
+      const endTime = allDay ? '' : ($('mtg-end-time')?.value||'');
       const location = $('mtg-location')?.value?.trim();
-      const facilitatorId = $('mtg-facilitator')?.value||'';
       const secretaryId = $('mtg-secretary')?.value||'';
+      const meetingType = $('mtg-type')?.value||'Internal';
+
       if (!title) return toast('Meeting title required','error');
-      if (!startDt) return toast('Start date & time required','error');
-      if (!endDt) return toast('End date & time required','error');
+      if (!meetingDate) return toast('Date required','error');
+      if (!allDay && !startTime) return toast('Start time required (or check All Day)','error');
       if (!location) return toast('Location / Platform required','error');
-      if (!facilitatorId) return toast('Facilitator required','error');
-      if (!secretaryId) return toast('Minutes Taker required','error');
+      if (!secretaryId) return toast('Minute Taker required','error');
 
-      // Parse datetime-local values
-      const startDate = startDt ? new Date(startDt) : null;
-      const meetingDate = startDt ? startDt.slice(0,10) : '';
-      const startTime = startDt ? startDt.slice(11,16) : '';
-      const endTime = endDt ? endDt.slice(11,16) : '';
-
-      const agendaItems = Array.from(document.querySelectorAll('.agenda-input')).map(i=>i.value.trim()).filter(Boolean);
+      const agendaItems = [];
+      document.querySelectorAll('.agenda-item-row').forEach((row,i) => {
+        const topic = row.querySelector('.ai-topic')?.value?.trim()||'';
+        const description = row.querySelector('.ai-desc')?.value?.trim()||'';
+        if (topic) agendaItems.push({itemNo:i+1, topic, description});
+      });
       if (!agendaItems.length) return toast('At least one agenda item required','error');
 
       const attendeesList = [];
@@ -4974,244 +4964,164 @@ document.addEventListener('DOMContentLoaded', ()=>{
         const name = row.querySelector('.att-name')?.value?.trim()||'';
         const position = row.querySelector('.att-position')?.value?.trim()||'';
         const department = row.querySelector('.att-dept')?.value?.trim()||'';
-        if (name) attendeesList.push({ name, position, department });
+        if (name) attendeesList.push({name, position, department});
       });
       if (!attendeesList.length) return toast('At least one attendee required','error');
 
-      // Collect action items from modal table
-      const actionItems = [];
-      document.querySelectorAll('#mtg-action-items-body .action-item-row').forEach((row, i) => {
-        const details = row.querySelector('.ai-details')?.value?.trim()||'';
-        const action = row.querySelector('.ai-action')?.value?.trim()||'';
-        const dueDate = row.querySelector('.ai-due')?.value?.trim()||'';
-        const responsible = row.querySelector('.ai-resp')?.value?.trim()||'';
-        if (details||action) actionItems.push({ itemNo: i+1, details, action, dueDate, responsible });
-      });
-
-      // Collect next steps
-      const nextSteps = [];
-      document.querySelectorAll('#mtg-next-steps-body .next-step-row').forEach((row, i) => {
-        const details = row.querySelector('.ns-details')?.value?.trim()||'';
-        const owner = row.querySelector('.ns-owner')?.value?.trim()||'';
-        const dueDate = row.querySelector('.ns-due')?.value?.trim()||'';
-        const status = row.querySelector('.ns-status')?.value||'Pending';
-        if (details) nextSteps.push({ itemNo: i+1, details, owner, dueDate, status });
-      });
-
       const payload = {
-        title,
-        meetingType: $('mtg-type')?.value||'Regular Meeting',
-        meetingDate,
-        startTime,
-        endTime,
-        location,
-        facilitatorId,
-        secretaryId,
-        agendaItems,
-        attendeesList,
-        attendees: attendeesList.map(a => a.name),
-        actionItems,
-        nextSteps,
+        title, meetingType, meetingDate, allDay, startTime, endTime, location,
+        secretaryId, agendaItems, attendeesList,
+        attendees: attendeesList.map(a=>a.name),
         updatedAt: new Date().toISOString(),
       };
+      // Preserve existing minutes/action items on edit
+      if (meetingId) {
+        const existing = (state.meetings||[]).find(x=>x.id===meetingId);
+        if (existing?.minutesContent) payload.minutesContent = existing.minutesContent;
+        if (existing?.actionItems) payload.actionItems = existing.actionItems;
+      }
       try {
         if (meetingId) {
           await updateDoc(doc(db,'meetings',meetingId), payload);
-          toast('✅ Meeting updated');
+          toast('Meeting updated','success');
         } else {
           payload.createdBy = currentUid();
           payload.createdAt = serverTimestamp();
           await addDoc(collection(db,'meetings'), payload);
-          toast('📅 Meeting created');
+          toast('Meeting created','success');
         }
         closeModal();
         navigate('meetings');
       } catch(e) { console.error(e); toast('Failed to save','error'); }
     };
 
-    window.addAgendaItem = function() {
-      const container = $('agenda-container');
-      const num = container.children.length + 1;
-      const div = document.createElement('div');
-      div.className = 'flex gap-2 items-center agenda-item';
-      div.innerHTML = `
-        <span class="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">${num}</span>
-        <input type="text" placeholder="Agenda item ${num}..." class="agenda-input flex-1 h-9 px-3 rounded-lg border border-input bg-background text-sm">
-        <button onclick="this.closest('.agenda-item').remove()" class="text-destructive px-1">✕</button>
-      `;
-      container.appendChild(div);
-    };
-
     window.viewMeeting = function(id) {
       const m = (state.meetings||[]).find(x=>x.id===id);
       if (!m) return;
       const isAdmin = state.currentUserDoc?.role === 'admin';
-      const canEdit = isAdmin || m.createdBy===currentUid() || m.facilitatorId===currentUid() || m.secretaryId===currentUid();
-      const typeColors = {'Regular Meeting':'bg-blue-500','Emergency Meeting':'bg-red-500','Board Meeting':'bg-purple-500','Planning Session':'bg-green-500','Review Meeting':'bg-orange-500'};
-      const typeColor = typeColors[m.meetingType]||'bg-muted-foreground';
-      const facilitator = state.users.find(u=>u.id===m.facilitatorId);
+      const canEdit = isAdmin || m.createdBy===currentUid() || m.secretaryId===currentUid();
+      const typeColors = { Internal:'bg-blue-500', External:'bg-emerald-500' };
+      const typeColor = typeColors[m.meetingType]||'bg-slate-500';
       const secretary = state.users.find(u=>u.id===m.secretaryId);
+      const allDay = m.allDay;
+      const timeStr = allDay ? 'All Day' : [m.startTime, m.endTime].filter(Boolean).join(' – ');
+      const agendaItems = (m.agendaItems||[]).map(a => typeof a==='string' ? {topic:a,description:''} : (a||{}));
+      const actionItems = m.actionItems || [];
 
       const html = `
         <div class="max-w-5xl mx-auto animate-slide-in space-y-5">
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-3 flex-wrap">
             <button onclick="window.navigate('meetings')" class="text-sm text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors">← Back</button>
-            ${canEdit ? `<div class="ml-auto flex gap-2">
-              <button onclick="window.openNewMeetingModal('${m.id}')" class="h-8 px-3 rounded-lg border border-border hover:bg-muted text-xs font-medium">✏️ Edit</button>
-              <button onclick="window.openMinutesModal('${m.id}')" class="h-8 px-3 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-bold">📝 Write Minutes</button>
-              <button onclick="window.deleteMeeting('${m.id}')" class="h-8 px-3 rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/10 text-xs font-medium">🗑️</button>
-            </div>` : ''}
+            <div class="ml-auto flex gap-2">
+              ${canEdit ? `<button onclick="window.openNewMeetingModal('${m.id}')" class="h-8 px-3 rounded-lg border border-border hover:bg-muted text-xs font-medium">✏️ Edit</button>` : ''}
+              <button onclick="window.downloadMinutesPDF('${m.id}')" class="h-8 px-3 rounded-lg border border-border hover:bg-muted text-xs font-medium">📄 Print / Export</button>
+              ${canEdit ? `<button onclick="window.deleteMeeting('${m.id}')" class="h-8 px-3 rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/10 text-xs font-medium">🗑️</button>` : ''}
+            </div>
           </div>
 
+          <!-- Section 1: Meeting Information -->
           <div class="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
-            <!-- Header banner -->
-            <div class="bg-gradient-to-r from-primary/15 to-transparent p-7 border-b border-border">
-              <div class="flex items-start gap-4">
-                <div class="w-14 h-14 rounded-2xl ${typeColor} flex items-center justify-center text-3xl text-white shadow-md">📅</div>
-                <div class="flex-1">
-                  <span class="text-[10px] font-bold uppercase tracking-widest text-white ${typeColor} px-2 py-0.5 rounded-full">${m.meetingType||'Meeting'}</span>
-                  <h1 class="text-2xl font-black mt-1 mb-2">${m.title}</h1>
-                  <div class="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                    <span>📅 ${m.meetingDate ? new Date(m.meetingDate).toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'}) : '—'}</span>
-                    ${m.startTime ? `<span>🕐 ${m.startTime}${m.endTime?' – '+m.endTime:''}</span>` : ''}
-                    ${m.location ? `<span>📍 ${m.location}</span>` : ''}
-                  </div>
-                </div>
+            <div class="h-1.5 ${typeColor}"></div>
+            <div class="p-6">
+              <div class="mb-4">
+                <span class="text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full text-white ${typeColor}">${m.meetingType||'Meeting'}</span>
+                <h1 class="text-2xl font-black mt-2">${m.title}</h1>
               </div>
-            </div>
-
-            <!-- Meeting details grid -->
-            <div class="p-7 grid grid-cols-1 md:grid-cols-2 gap-7">
-              <!-- Left: Agenda + Key Info -->
-              <div class="space-y-5">
-                ${m.agendaItems?.length ? `
-                <div>
-                  <h3 class="font-bold text-sm uppercase tracking-wide text-muted-foreground mb-3">📋 Agenda</h3>
-                  <ol class="space-y-2">
-                    ${m.agendaItems.map((a,i)=>`<li class="flex gap-2.5 text-sm">
-                      <span class="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">${i+1}</span>
-                      <span class="leading-relaxed">${a}</span>
-                    </li>`).join('')}
-                  </ol>
+              <div class="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                <div class="bg-muted/30 rounded-xl p-3">
+                  <p class="text-[10px] text-muted-foreground uppercase font-bold mb-1">📅 Date</p>
+                  <p class="font-semibold text-sm">${m.meetingDate ? new Date(m.meetingDate+'T00:00:00').toLocaleDateString('en-US',{weekday:'short',year:'numeric',month:'long',day:'numeric'}) : '—'}</p>
+                </div>
+                <div class="bg-muted/30 rounded-xl p-3">
+                  <p class="text-[10px] text-muted-foreground uppercase font-bold mb-1">🕐 Time</p>
+                  <p class="font-semibold text-sm">${timeStr||'—'}</p>
+                </div>
+                <div class="bg-muted/30 rounded-xl p-3">
+                  <p class="text-[10px] text-muted-foreground uppercase font-bold mb-1">📍 Location</p>
+                  <p class="font-semibold text-sm">${m.location||'—'}</p>
+                </div>
+                <div class="bg-muted/30 rounded-xl p-3">
+                  <p class="text-[10px] text-muted-foreground uppercase font-bold mb-1">🏷️ Type</p>
+                  <p class="font-semibold text-sm">${m.meetingType||'—'}</p>
+                </div>
+                ${secretary ? `<div class="bg-muted/30 rounded-xl p-3 col-span-2">
+                  <p class="text-[10px] text-muted-foreground uppercase font-bold mb-1">✍️ Minute Taker</p>
+                  <div class="flex items-center gap-2">${getUserAvatar(secretary.id,'w-6 h-6 text-xs')}<span class="font-semibold text-sm">${secretary.name||secretary.email}</span></div>
                 </div>` : ''}
-
-                <div class="grid grid-cols-2 gap-3">
-                  ${facilitator ? `<div class="bg-muted/30 rounded-xl p-3">
-                    <p class="text-[10px] text-muted-foreground uppercase font-bold mb-1">Facilitator</p>
-                    <div class="flex items-center gap-2">${getUserAvatar(facilitator.id,'w-7 h-7 text-xs')}<span class="text-sm font-medium">${facilitator.name||facilitator.email}</span></div>
-                  </div>` : ''}
-                  ${secretary ? `<div class="bg-muted/30 rounded-xl p-3">
-                    <p class="text-[10px] text-muted-foreground uppercase font-bold mb-1">Minutes Taker</p>
-                    <div class="flex items-center gap-2">${getUserAvatar(secretary.id,'w-7 h-7 text-xs')}<span class="text-sm font-medium">${secretary.name||secretary.email}</span></div>
-                  </div>` : ''}
-                </div>
-
-                <!-- Attendees -->
-                <div>
-                  <h3 class="font-bold text-sm uppercase tracking-wide text-muted-foreground mb-3">👥 Attendees (${(m.attendeesList||m.attendees||[]).length})</h3>
-                  ${(m.attendeesList||[]).length > 0 ? `
-                  <div class="border border-border rounded-xl overflow-hidden">
-                    <table class="w-full text-xs">
-                      <thead class="bg-muted/40 border-b border-border">
-                        <tr>
-                          <th class="px-3 py-2 text-center text-muted-foreground w-8">#</th>
-                          <th class="px-3 py-2 text-left text-muted-foreground">Name</th>
-                          <th class="px-3 py-2 text-left text-muted-foreground">Position</th>
-                          <th class="px-3 py-2 text-left text-muted-foreground">Department / Org</th>
-                        </tr>
-                      </thead>
-                      <tbody class="divide-y divide-border">
-                        ${(m.attendeesList||[]).map((a,i)=>`
-                          <tr class="hover:bg-muted/20">
-                            <td class="px-3 py-2 text-center text-muted-foreground font-bold">${i+1}</td>
-                            <td class="px-3 py-2 font-medium">${a.name||'—'}</td>
-                            <td class="px-3 py-2 text-muted-foreground">${a.position||'—'}</td>
-                            <td class="px-3 py-2 text-muted-foreground">${a.department||'—'}</td>
-                          </tr>`).join('')}
-                      </tbody>
-                    </table>
-                  </div>` : `
-                  <div class="flex flex-wrap gap-2">
-                    ${(m.attendees||[]).map(name => `
-                      <div class="flex items-center gap-1.5 bg-muted/50 rounded-full px-3 py-1 text-xs border border-border">
-                        <span class="w-5 h-5 rounded-full bg-primary/20 text-primary text-[8px] font-bold flex items-center justify-center">${(name||'?').charAt(0).toUpperCase()}</span> ${name}
-                      </div>`).join('')}
-                    ${!(m.attendees||[]).length ? '<p class="text-xs text-muted-foreground">No attendees recorded</p>' : ''}
-                  </div>`}
-                </div>
               </div>
-
-              <!-- Right: Action Items + Next Steps -->
-              <div class="space-y-5">
-                <!-- Action Items -->
-                <div>
-                  <div class="flex items-center justify-between mb-3">
-                    <h3 class="font-bold text-sm uppercase tracking-wide text-muted-foreground">⚡ Action Items</h3>
-                    ${canEdit ? `<button onclick="window.openNewMeetingModal('${m.id}')" class="text-xs text-primary hover:underline font-medium">Edit</button>` : ''}
-                  </div>
-                  ${(m.actionItems||[]).length > 0 ? `
-                  <div class="border border-border rounded-xl overflow-hidden">
-                    <table class="w-full text-xs">
-                      <thead class="bg-muted/40 border-b border-border">
-                        <tr>
-                          <th class="px-3 py-2 text-center w-8 text-muted-foreground">#</th>
-                          <th class="px-3 py-2 text-left text-muted-foreground">Details</th>
-                          <th class="px-3 py-2 text-left text-muted-foreground">Action</th>
-                          <th class="px-3 py-2 text-left text-muted-foreground">Due</th>
-                          <th class="px-3 py-2 text-left text-muted-foreground">Responsible</th>
-                        </tr>
-                      </thead>
-                      <tbody class="divide-y divide-border">
-                        ${(m.actionItems||[]).map((a,i)=>`
-                          <tr class="hover:bg-muted/20">
-                            <td class="px-3 py-2 text-center text-muted-foreground font-bold">${i+1}</td>
-                            <td class="px-3 py-2 font-medium">${a.details||'—'}</td>
-                            <td class="px-3 py-2 text-muted-foreground">${a.action||'—'}</td>
-                            <td class="px-3 py-2 text-muted-foreground whitespace-nowrap">${a.dueDate||'—'}</td>
-                            <td class="px-3 py-2 text-muted-foreground">${a.responsible||'—'}</td>
-                          </tr>`).join('')}
-                      </tbody>
-                    </table>
-                  </div>` : `<div class="bg-muted/10 rounded-xl p-4 border border-dashed border-border text-center text-xs text-muted-foreground">No action items recorded</div>`}
+              <!-- Attendees -->
+              ${(m.attendeesList||[]).length ? `
+              <div class="mt-5">
+                <h3 class="font-bold text-sm uppercase tracking-wide text-muted-foreground mb-3">👥 Attendees (${m.attendeesList.length})</h3>
+                <div class="border border-border rounded-xl overflow-hidden">
+                  <table class="w-full text-xs">
+                    <thead class="bg-muted/40 border-b border-border">
+                      <tr>
+                        <th class="px-3 py-2 text-center text-muted-foreground w-8">#</th>
+                        <th class="px-3 py-2 text-left text-muted-foreground">Full Name</th>
+                        <th class="px-3 py-2 text-left text-muted-foreground">Position</th>
+                        <th class="px-3 py-2 text-left text-muted-foreground">Department</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-border">
+                      ${m.attendeesList.map((a,i)=>`<tr class="hover:bg-muted/20"><td class="px-3 py-2 text-center text-muted-foreground font-bold">${i+1}</td><td class="px-3 py-2 font-medium">${a.name||'—'}</td><td class="px-3 py-2 text-muted-foreground">${a.position||'—'}</td><td class="px-3 py-2 text-muted-foreground">${a.department||'—'}</td></tr>`).join('')}
+                    </tbody>
+                  </table>
                 </div>
+              </div>` : ''}
+            </div>
+          </div>
 
-                <!-- Next Steps -->
-                <div>
-                  <h3 class="font-bold text-sm uppercase tracking-wide text-muted-foreground mb-3">🔜 Next Steps</h3>
-                  ${(m.nextSteps||[]).length > 0 ? `
-                  <div class="border border-border rounded-xl overflow-hidden">
-                    <table class="w-full text-xs">
-                      <thead class="bg-muted/40 border-b border-border">
-                        <tr>
-                          <th class="px-3 py-2 text-center w-8 text-muted-foreground">#</th>
-                          <th class="px-3 py-2 text-left text-muted-foreground">Description</th>
-                          <th class="px-3 py-2 text-left text-muted-foreground">Owner</th>
-                          <th class="px-3 py-2 text-left text-muted-foreground">Due</th>
-                          <th class="px-3 py-2 text-left text-muted-foreground">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody class="divide-y divide-border">
-                        ${(m.nextSteps||[]).map((s,i)=>{
-                          const stCls = s.status==='Done'?'text-green-600 bg-green-50 dark:bg-green-900/20':s.status==='In Progress'?'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20':'text-blue-600 bg-blue-50 dark:bg-blue-900/20';
-                          return `<tr class="hover:bg-muted/20">
-                            <td class="px-3 py-2 text-center text-muted-foreground font-bold">${i+1}</td>
-                            <td class="px-3 py-2 font-medium">${s.details||'—'}</td>
-                            <td class="px-3 py-2 text-muted-foreground">${s.owner||'—'}</td>
-                            <td class="px-3 py-2 text-muted-foreground whitespace-nowrap">${s.dueDate||'—'}</td>
-                            <td class="px-3 py-2"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${stCls}">${s.status||'Pending'}</span></td>
-                          </tr>`;}).join('')}
-                      </tbody>
-                    </table>
-                  </div>` : `<div class="bg-muted/10 rounded-xl p-4 border border-dashed border-border text-center text-xs text-muted-foreground">No next steps recorded</div>`}
-                </div>
+          <!-- Section 2: Agenda -->
+          ${agendaItems.length ? `
+          <div class="bg-card border border-border rounded-2xl p-6 shadow-sm">
+            <h3 class="font-bold text-sm uppercase tracking-wide text-muted-foreground mb-4">📋 Agenda</h3>
+            <div class="border border-border rounded-xl overflow-hidden">
+              <table class="w-full text-sm">
+                <thead class="bg-muted/40 border-b border-border">
+                  <tr>
+                    <th class="px-4 py-2.5 text-center text-muted-foreground w-10">#</th>
+                    <th class="px-4 py-2.5 text-left text-muted-foreground">Agenda Topic</th>
+                    <th class="px-4 py-2.5 text-left text-muted-foreground">Description</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-border">
+                  ${agendaItems.map((a,i)=>`<tr class="hover:bg-muted/20"><td class="px-4 py-2.5 text-center font-bold text-muted-foreground">${i+1}</td><td class="px-4 py-2.5 font-semibold">${a.topic||'—'}</td><td class="px-4 py-2.5 text-muted-foreground">${a.description||'—'}</td></tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>` : ''}
 
-                <!-- Download PDF -->
-                <div class="pt-2">
-                  <button onclick="window.downloadMinutesPDF('${m.id}')" class="w-full h-9 rounded-xl border border-border hover:bg-muted text-xs font-semibold transition-colors flex items-center justify-center gap-2">
-                    📄 Download / Print PDF
-                  </button>
-                </div>
-              </div>
+          <!-- Section 3: Minutes & Action Items -->
+          <div class="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-5">
+            <div class="flex items-center justify-between">
+              <h3 class="font-bold text-sm uppercase tracking-wide text-muted-foreground">📝 Meeting Minutes & Action Items</h3>
+              ${canEdit ? `<button onclick="window.openMinutesModal('${m.id}')" class="h-8 px-3 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-bold">✏️ Edit Minutes</button>` : ''}
+            </div>
+            ${m.minutesContent ? `
+            <div>
+              <p class="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2">Minutes / Discussion</p>
+              <div class="bg-muted/30 rounded-xl p-4 text-sm leading-relaxed ql-render">${m.minutesContent}</div>
+            </div>` : `<div class="bg-muted/10 border border-dashed border-border rounded-xl p-4 text-center text-sm text-muted-foreground">${canEdit?'No minutes yet — click "Edit Minutes" to add discussion notes':'No minutes recorded'}</div>`}
+            <div>
+              <p class="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2">⚡ Action Items</p>
+              ${actionItems.length ? `
+              <div class="border border-border rounded-xl overflow-hidden">
+                <table class="w-full text-xs">
+                  <thead class="bg-muted/40 border-b border-border">
+                    <tr>
+                      <th class="px-3 py-2 text-center w-8 text-muted-foreground">#</th>
+                      <th class="px-3 py-2 text-left text-muted-foreground">Item Details</th>
+                      <th class="px-3 py-2 text-left text-muted-foreground">Action Required</th>
+                      <th class="px-3 py-2 text-left text-muted-foreground">Due Date</th>
+                      <th class="px-3 py-2 text-left text-muted-foreground">Responsible</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-border">
+                    ${actionItems.map((a,i)=>`<tr class="hover:bg-muted/20"><td class="px-3 py-2 text-center text-muted-foreground font-bold">${i+1}</td><td class="px-3 py-2 font-medium">${a.details||'—'}</td><td class="px-3 py-2 text-muted-foreground">${a.action||'—'}</td><td class="px-3 py-2 text-muted-foreground whitespace-nowrap">${a.dueDate||'—'}</td><td class="px-3 py-2 text-muted-foreground">${a.responsible||'—'}</td></tr>`).join('')}
+                  </tbody>
+                </table>
+              </div>` : `<div class="bg-muted/10 border border-dashed border-border rounded-xl p-4 text-center text-xs text-muted-foreground">${canEdit?'No action items yet — click "Edit Minutes" to add':'No action items recorded'}</div>`}
             </div>
           </div>
         </div>
@@ -5225,46 +5135,43 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const actions = m.actionItems || [];
       showModal(`
         <div class="p-5 border-b border-border flex justify-between items-center bg-muted/30 rounded-t-xl">
-          <h3 class="font-bold text-base">📝 Minutes of Meeting — ${m.title}</h3>
-          <div class="flex gap-2">
-            <button onclick="window.downloadMinutesPDF('${meetingId}')" class="h-8 px-3 rounded-lg border border-border hover:bg-muted text-xs font-medium">📄 Download PDF</button>
-            <button onclick="closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
+          <div>
+            <h3 class="font-bold text-base">📝 Meeting Minutes</h3>
+            <p class="text-xs text-muted-foreground mt-0.5">${m.title}</p>
           </div>
+          <button onclick="closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
         </div>
         <div class="p-6 space-y-5 overflow-y-auto max-h-[75vh]">
           <div>
-            <label class="block text-sm font-semibold mb-2">Meeting Minutes</label>
+            <label class="block text-sm font-semibold mb-2">Minutes / Discussion Notes</label>
             <div id="minutes-editor-mount"></div>
           </div>
-          <!-- Action Items Table -->
           <div>
-            <div class="flex items-center justify-between mb-3">
-              <label class="text-sm font-semibold">Action Items</label>
+            <div class="flex items-center justify-between mb-2">
+              <label class="text-sm font-semibold">⚡ Action Items</label>
               <button onclick="window.addActionItem()" class="text-xs text-primary hover:underline font-medium">＋ Add Item</button>
             </div>
             <div class="border border-border rounded-xl overflow-hidden">
               <table class="w-full text-xs">
                 <thead class="bg-muted/40 border-b border-border">
                   <tr>
-                    <th class="px-3 py-2 text-left font-semibold text-muted-foreground">#</th>
-                    <th class="px-3 py-2 text-left font-semibold text-muted-foreground">Item Details</th>
-                    <th class="px-3 py-2 text-left font-semibold text-muted-foreground">Action Required</th>
-                    <th class="px-3 py-2 text-left font-semibold text-muted-foreground">Due Date</th>
-                    <th class="px-3 py-2 text-left font-semibold text-muted-foreground">Responsible</th>
-                    <th class="px-3 py-2 text-left font-semibold text-muted-foreground">Next Step</th>
-                    <th class="px-3 py-2"></th>
+                    <th class="px-2 py-2 text-center w-7 text-muted-foreground">#</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Item Details</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Action Required</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground w-24">Due Date</th>
+                    <th class="px-2 py-2 text-left text-muted-foreground">Responsible</th>
+                    <th class="px-2 py-2 w-7"></th>
                   </tr>
                 </thead>
                 <tbody id="action-items-body" class="divide-y divide-border">
                   ${actions.map((a,i) => `
                     <tr class="action-item-row">
-                      <td class="px-3 py-2 font-bold text-muted-foreground">${i+1}</td>
-                      <td class="px-3 py-2"><input class="ai-details w-full bg-transparent border-none outline-none text-xs" value="${(a.details||'').replace(/"/g,'&quot;')}" placeholder="Item details..."></td>
-                      <td class="px-3 py-2"><input class="ai-action w-full bg-transparent border-none outline-none text-xs" value="${(a.action||'').replace(/"/g,'&quot;')}" placeholder="Action required..."></td>
-                      <td class="px-3 py-2"><input class="ai-due type=date w-full bg-transparent border-none outline-none text-xs" value="${a.dueDate||''}" placeholder="YYYY-MM-DD"></td>
-                      <td class="px-3 py-2"><input class="ai-resp w-full bg-transparent border-none outline-none text-xs" value="${(a.responsible||'').replace(/"/g,'&quot;')}" placeholder="Person..."></td>
-                      <td class="px-3 py-2"><input class="ai-next w-full bg-transparent border-none outline-none text-xs" value="${(a.nextStep||'').replace(/"/g,'&quot;')}" placeholder="Next step..."></td>
-                      <td class="px-3 py-2"><button onclick="this.closest('tr').remove()" class="text-destructive hover:text-destructive/80 p-1">×</button></td>
+                      <td class="px-2 py-1.5 text-center font-bold text-muted-foreground">${i+1}</td>
+                      <td class="px-2 py-1.5"><input class="ai-details w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${(a.details||'').replace(/"/g,'&quot;')}" placeholder="Item details..."></td>
+                      <td class="px-2 py-1.5"><input class="ai-action w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${(a.action||'').replace(/"/g,'&quot;')}" placeholder="Action required..."></td>
+                      <td class="px-2 py-1.5"><input type="date" class="ai-due w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${a.dueDate||''}"></td>
+                      <td class="px-2 py-1.5"><input class="ai-resp w-full h-7 px-2 rounded border border-input bg-background text-xs" value="${(a.responsible||'').replace(/"/g,'&quot;')}" placeholder="Person..."></td>
+                      <td class="px-2 py-1.5 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive p-0.5">×</button></td>
                     </tr>`).join('')}
                 </tbody>
               </table>
@@ -5276,7 +5183,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
           <button onclick="window.saveMinutes('${meetingId}')" class="px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-bold">💾 Save Minutes</button>
         </div>
       `);
-      const q = EditorManager.init('minutes-editor-mount', { placeholder: 'Record discussion points, decisions made, resolutions…', minHeight: '200px' });
+      EditorManager.init('minutes-editor-mount', { placeholder: 'Record discussion points, decisions, resolutions…', minHeight: '180px' });
       if (m.minutesContent) EditorManager.setHTML('minutes-editor-mount', m.minutesContent);
     };
 
@@ -5287,32 +5194,28 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const tr = document.createElement('tr');
       tr.className = 'action-item-row';
       tr.innerHTML = `
-        <td class="px-3 py-2 font-bold text-muted-foreground">${rowCount}</td>
-        <td class="px-3 py-2"><input class="ai-details w-full bg-transparent border-none outline-none text-xs" placeholder="Item details..."></td>
-        <td class="px-3 py-2"><input class="ai-action w-full bg-transparent border-none outline-none text-xs" placeholder="Action required..."></td>
-        <td class="px-3 py-2"><input class="ai-due w-full bg-transparent border-none outline-none text-xs" placeholder="YYYY-MM-DD"></td>
-        <td class="px-3 py-2"><input class="ai-resp w-full bg-transparent border-none outline-none text-xs" placeholder="Person..."></td>
-        <td class="px-3 py-2"><input class="ai-next w-full bg-transparent border-none outline-none text-xs" placeholder="Next step..."></td>
-        <td class="px-3 py-2"><button onclick="this.closest('tr').remove()" class="text-destructive p-1">×</button></td>
-      `;
+        <td class="px-2 py-1.5 text-center font-bold text-muted-foreground">${rowCount}</td>
+        <td class="px-2 py-1.5"><input class="ai-details w-full h-7 px-2 rounded border border-input bg-background text-xs" placeholder="Item details..."></td>
+        <td class="px-2 py-1.5"><input class="ai-action w-full h-7 px-2 rounded border border-input bg-background text-xs" placeholder="Action required..."></td>
+        <td class="px-2 py-1.5"><input type="date" class="ai-due w-full h-7 px-2 rounded border border-input bg-background text-xs"></td>
+        <td class="px-2 py-1.5"><input class="ai-resp w-full h-7 px-2 rounded border border-input bg-background text-xs" placeholder="Person..."></td>
+        <td class="px-2 py-1.5 text-center"><button onclick="this.closest('tr').remove()" class="text-destructive p-0.5">×</button></td>`;
       tbody.appendChild(tr);
     };
 
     window.saveMinutes = async function(meetingId) {
       const html = EditorManager.getHTML('minutes-editor-mount');
-      // Collect action items
       const actionItems = [];
-      document.querySelectorAll('.action-item-row').forEach((row, i) => {
+      document.querySelectorAll('#action-items-body .action-item-row').forEach((row,i) => {
         const details = row.querySelector('.ai-details')?.value?.trim()||'';
         const action = row.querySelector('.ai-action')?.value?.trim()||'';
         const dueDate = row.querySelector('.ai-due')?.value?.trim()||'';
         const responsible = row.querySelector('.ai-resp')?.value?.trim()||'';
-        const nextStep = row.querySelector('.ai-next')?.value?.trim()||'';
-        if (details || action) actionItems.push({itemNo:i+1,details,action,dueDate,responsible,nextStep});
+        if (details||action) actionItems.push({itemNo:i+1,details,action,dueDate,responsible});
       });
       try {
-        await updateDoc(doc(db,'meetings',meetingId), { minutesContent: html||'', actionItems, minutesUpdatedAt: new Date().toISOString() });
-        toast('📝 Minutes saved');
+        await updateDoc(doc(db,'meetings',meetingId), { minutesContent:html||'', actionItems, minutesUpdatedAt:new Date().toISOString() });
+        toast('Minutes saved','success');
         await logActivity('minutes','Meetings','Saved meeting minutes');
         closeModal();
         setTimeout(() => window.viewMeeting(meetingId), 200);
@@ -5322,89 +5225,92 @@ document.addEventListener('DOMContentLoaded', ()=>{
     window.downloadMinutesPDF = function(meetingId) {
       const m = (state.meetings||[]).find(x=>x.id===meetingId);
       if (!m) return;
-      const actions = m.actionItems || [];
-      const nextSteps = m.nextSteps || [];
-      const facilitator = state.users.find(u=>u.id===m.facilitatorId);
       const secretary = state.users.find(u=>u.id===m.secretaryId);
-      const attendeesList = m.attendeesList || [];
+      const attendeesList = m.attendeesList||[];
+      const agendaItems = (m.agendaItems||[]).map(a=>typeof a==='string'?{topic:a,description:''}:(a||{}));
+      const actionItems = m.actionItems||[];
+      const allDay = m.allDay;
+      const timeStr = allDay ? 'All Day' : [m.startTime, m.endTime].filter(Boolean).join(' – ');
+      const dateStr = m.meetingDate ? new Date(m.meetingDate+'T00:00:00').toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'}) : '—';
+      const accentColor = m.meetingType === 'External' ? '#10b981' : '#3b82f6';
+
       const w = window.open('','_blank');
       w.document.write(`<!DOCTYPE html><html><head>
-        <title>Minutes - ${m.title}</title>
+        <title>Meeting Report – ${m.title}</title>
         <style>
-          body{font-family:Arial,sans-serif;margin:40px;color:#111}
-          .header-logo{text-align:center;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid #333}
-          .header-logo h1{font-size:24px;margin:0 0 4px}
-          .header-logo p{margin:2px 0;color:#555;font-size:13px}
-          h2{font-size:15px;color:#222;margin-top:22px;margin-bottom:6px;border-bottom:1.5px solid #ccc;padding-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
-          .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px;font-size:13px;margin-bottom:8px}
-          .info-row{display:flex;gap:6px} .info-label{font-weight:bold;min-width:110px;color:#555} .info-val{color:#111}
-          table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
-          th{background:#f0f0f0;border:1px solid #ccc;padding:7px 10px;text-align:left;font-weight:bold}
-          td{border:1px solid #ccc;padding:6px 10px;vertical-align:top}
-          tr:nth-child(even) td{background:#fafafa}
-          .sig-cell{width:100px;height:32px;}
-          .footer{margin-top:40px;color:#aaa;font-size:11px;text-align:center;border-top:1px solid #eee;padding-top:10px}
-          @media print{body{margin:20px}}
+          *{box-sizing:border-box}
+          body{font-family:'Segoe UI',Arial,sans-serif;margin:0;padding:32px 40px;color:#111;font-size:13px;line-height:1.5}
+          .cover{text-align:center;padding:28px 0 20px;border-bottom:3px solid ${accentColor};margin-bottom:24px}
+          .cover h1{font-size:22px;margin:0 0 4px;font-weight:900}
+          .cover .sub{font-size:15px;color:#333;font-weight:700;margin:4px 0}
+          .cover .badge{display:inline-block;padding:4px 16px;border-radius:100px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-top:8px;color:#fff;background:${accentColor}}
+          h2{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;color:#555;margin:22px 0 8px;border-bottom:1px solid #e5e7eb;padding-bottom:5px}
+          .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;margin-bottom:8px}
+          .info-row{display:flex;gap:6px;padding:4px 0;border-bottom:1px dashed #f0f0f0}
+          .lbl{font-weight:700;color:#666;min-width:110px;font-size:12px}
+          .val{color:#111;font-size:12px}
+          table{width:100%;border-collapse:collapse;margin-top:6px;font-size:12px}
+          th{background:#f9fafb;border:1px solid #e5e7eb;padding:8px 10px;text-align:left;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:#374151}
+          td{border:1px solid #e5e7eb;padding:7px 10px;vertical-align:top}
+          tr:nth-child(even) td{background:#f9fafb}
+          .sig{height:32px}
+          .minutes-box{border:1px solid #e5e7eb;border-radius:6px;padding:14px;min-height:60px;background:#fafafa;font-size:13px;line-height:1.8;margin-top:6px}
+          .footer{margin-top:36px;text-align:center;font-size:10px;color:#9ca3af;border-top:1px solid #f3f4f6;padding-top:10px}
+          @media print{body{padding:16px 20px}button{display:none}}
         </style>
       </head><body>
-        <div class="header-logo">
-          <h1>📅 Minutes of Meeting</h1>
-          <p><strong>${m.title}</strong></p>
-          <p>${m.meetingType||'Meeting'}</p>
+        <div class="cover">
+          <h1>Meeting Report</h1>
+          <div class="sub">${m.title}</div>
+          <div class="badge">${m.meetingType||'Meeting'}</div>
         </div>
 
         <h2>Meeting Information</h2>
         <div class="info-grid">
-          <div class="info-row"><span class="info-label">Date:</span><span class="info-val">${m.meetingDate ? new Date(m.meetingDate+'T00:00:00').toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'}) : '—'}</span></div>
-          <div class="info-row"><span class="info-label">Meeting Type:</span><span class="info-val">${m.meetingType||'—'}</span></div>
-          <div class="info-row"><span class="info-label">Time:</span><span class="info-val">${m.startTime||'—'}${m.endTime?' – '+m.endTime:''}</span></div>
-          <div class="info-row"><span class="info-label">Location:</span><span class="info-val">${m.location||'—'}</span></div>
-          <div class="info-row"><span class="info-label">Facilitator:</span><span class="info-val">${facilitator?.name||facilitator?.email||'—'}</span></div>
-          <div class="info-row"><span class="info-label">Minutes Taker:</span><span class="info-val">${secretary?.name||secretary?.email||'—'}</span></div>
+          <div class="info-row"><span class="lbl">Title:</span><span class="val">${m.title}</span></div>
+          <div class="info-row"><span class="lbl">Type:</span><span class="val">${m.meetingType||'—'}</span></div>
+          <div class="info-row"><span class="lbl">Date:</span><span class="val">${dateStr}</span></div>
+          <div class="info-row"><span class="lbl">Time:</span><span class="val">${timeStr||'—'}</span></div>
+          <div class="info-row"><span class="lbl">Location:</span><span class="val">${m.location||'—'}</span></div>
+          <div class="info-row"><span class="lbl">Minute Taker:</span><span class="val">${secretary?.name||secretary?.email||'—'}</span></div>
         </div>
-
-        ${m.agendaItems?.length ? `
-        <h2>Agenda (${m.agendaItems.length} items)</h2>
-        <ol style="font-size:13px;padding-left:18px;margin:6px 0">
-          ${m.agendaItems.map(a=>`<li style="margin:3px 0">${a}</li>`).join('')}
-        </ol>` : ''}
 
         ${attendeesList.length ? `
         <h2>Attendees (${attendeesList.length})</h2>
         <table>
-          <tr><th>#</th><th>Name</th><th>Position / Title</th><th>Department / Organization</th><th style="width:120px">Signature</th></tr>
-          ${attendeesList.map((a,i)=>`<tr><td>${i+1}</td><td>${a.name||''}</td><td>${a.position||''}</td><td>${a.department||''}</td><td class="sig-cell"></td></tr>`).join('')}
+          <tr><th style="width:36px">#</th><th>Full Name</th><th>Position / Title</th><th>Department / Organization</th><th style="width:100px">Signature</th></tr>
+          ${attendeesList.map((a,i)=>`<tr><td>${i+1}</td><td>${a.name||''}</td><td>${a.position||''}</td><td>${a.department||''}</td><td class="sig"></td></tr>`).join('')}
         </table>` : ''}
 
-        ${m.minutesContent ? `
-        <h2>Minutes / Discussion</h2>
-        <div style="font-size:13px;line-height:1.7;margin-top:6px">${m.minutesContent}</div>` : ''}
-
-        ${actions.length ? `
-        <h2>Action Items (${actions.length})</h2>
+        ${agendaItems.length ? `
+        <h2>Agenda (${agendaItems.length} items)</h2>
         <table>
-          <tr><th>#</th><th>Item Details</th><th>Action Required</th><th>Due Date</th><th>Responsible</th></tr>
-          ${actions.map(a=>`<tr><td>${a.itemNo||''}</td><td>${a.details||''}</td><td>${a.action||''}</td><td>${a.dueDate||''}</td><td>${a.responsible||''}</td></tr>`).join('')}
+          <tr><th style="width:36px">#</th><th>Agenda Topic</th><th>Description</th></tr>
+          ${agendaItems.map((a,i)=>`<tr><td>${i+1}</td><td><strong>${a.topic||''}</strong></td><td>${a.description||''}</td></tr>`).join('')}
         </table>` : ''}
 
-        ${nextSteps.length ? `
-        <h2>Next Steps (${nextSteps.length})</h2>
+        <h2>Meeting Minutes</h2>
+        ${m.minutesContent ? `<div class="minutes-box">${m.minutesContent}</div>` : '<div class="minutes-box" style="color:#aaa;font-style:italic">No minutes recorded.</div>'}
+
+        ${actionItems.length ? `
+        <h2>Action Items (${actionItems.length})</h2>
         <table>
-          <tr><th>#</th><th>Step Description</th><th>Owner</th><th>Due Date</th><th>Status</th></tr>
-          ${nextSteps.map(s=>`<tr><td>${s.itemNo||''}</td><td>${s.details||''}</td><td>${s.owner||''}</td><td>${s.dueDate||''}</td><td>${s.status||'Pending'}</td></tr>`).join('')}
+          <tr><th style="width:36px">#</th><th>Item Details</th><th>Action Required</th><th style="width:90px">Due Date</th><th>Responsible</th></tr>
+          ${actionItems.map((a,i)=>`<tr><td>${i+1}</td><td>${a.details||''}</td><td>${a.action||''}</td><td>${a.dueDate||''}</td><td>${a.responsible||''}</td></tr>`).join('')}
         </table>` : ''}
 
-        <div class="footer">Generated by SDA Portal · ${new Date().toLocaleString()}</div>
+        <div class="footer">Generated by SDA Portal &nbsp;·&nbsp; ${new Date().toLocaleString()}</div>
         <script>window.onload=()=>window.print();<\/script>
       </body></html>`);
       w.document.close();
     };
 
     window.deleteMeeting = async function(id) {
-      if (!confirm('Delete this meeting?')) return;
+      if (!confirm('Delete this meeting and all its data?')) return;
       try { await deleteDoc(doc(db,'meetings',id)); toast('Meeting deleted'); navigate('meetings'); }
       catch(e) { toast('Failed to delete','error'); }
     };
+
 
     /***********************
      * ADMIN — Learning Hub Management
