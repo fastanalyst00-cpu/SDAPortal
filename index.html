@@ -50,7 +50,7 @@ window.renderAdmin = window.renderAdmin || function(){
   const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Admin loading…</div>';
 };
 window.renderIssues = window.renderIssues || function(){
-  const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">Issue Tracker loading…</div>';
+  const el=document.getElementById('content-area'); if(el) el.innerHTML='<div class="p-6 text-sm">PALO loading…</div>';
 };
 
 /* Safe DOM helper */
@@ -422,7 +422,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
       recurringTasks: [],
       activityLogs: [],
       allQuizResults: [],
-      issues: []
+      issues: [],
+      projectComments: []
     };
 
     /***********************
@@ -569,6 +570,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
           statuses: state.settings.statuses,
           taskTypes: state.settings.taskTypes,
           meetingTypes: ['Regular Meeting','Emergency Meeting','Board Meeting','Planning Session','Review Meeting'],
+          modulePermissions: {},
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
@@ -739,7 +741,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
         "expenses",
         "recurring_tasks",
         "activity_logs",
-        "issues"
+        "issues",
+        "project_comments"
       ];
 
       for (const name of collectionsList) {
@@ -1075,6 +1078,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
         if (state.view === 'issues') renderIssues();
       });
       state.listeners.push(unsubIssues);
+
+      // PROJECT COMMENTS
+      const unsubProjComments = onSnapshot(query(collection(db,'project_comments'), orderBy('createdAt','asc')), (snap) => {
+        state.projectComments = snap.docs.map(d=>({id:d.id,...d.data()})).filter(d=>!d.initialized);
+        if (state.view === 'project-detail') renderProjectDetail(state._activeProjectId);
+      });
+      state.listeners.push(unsubProjComments);
     }
 
     /***********************
@@ -1128,7 +1138,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
      ***********************/
     function renderSidebar() {
       const isAdmin = state.currentUserDoc?.role === 'admin';
-      const items = [
+      const allowedModules = getAllowedModules();
+      const allItems = [
         { id: 'home', icon: 'fa-house', label: 'Home', emoji: '🏠' },
         { id: 'kanban', icon: 'fa-columns', label: 'Task Board', emoji: '📋' },
         { id: 'tasks', icon: 'fa-list-check', label: 'All Tasks', emoji: '✅' },
@@ -1140,13 +1151,15 @@ document.addEventListener('DOMContentLoaded', ()=>{
         { id: 'meetings', icon: 'fa-calendar', label: 'Meetings', emoji: '📅' },
         { id: 'my-notes', icon: 'fa-notebook', label: 'My Notes', emoji: '📓' },
         { id: 'expenses', icon: 'fa-receipt', label: 'Expenses', emoji: '💸' },
-        { id: 'issues', icon: 'fa-triangle-exclamation', label: 'Issue Tracker', emoji: '⚠️' },
+        { id: 'issues', icon: 'fa-triangle-exclamation', label: 'PALO', emoji: '⚠️' },
         { id: 'calendar', icon: 'fa-calendar-days', label: 'Calendar', emoji: '🗓️' },
         ...(isAdmin ? [
           { id: 'reports', icon: 'fa-chart-pie', label: 'Reports', emoji: '📊' },
           { id: 'admin', icon: 'fa-shield-halved', label: 'Admin', emoji: '⚙️' },
         ] : []),
       ];
+      // Filter by allowed modules (admins always see all)
+      const items = isAdmin ? allItems : allItems.filter(i => allowedModules.includes(i.id));
       const nav = $('sidebar-nav');
       nav.innerHTML = items.map(item => `
         <button onclick="window.navigate('${item.id}')" data-view="${item.id}" class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors text-muted-foreground hover:bg-muted mb-0.5">
@@ -1182,6 +1195,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
           view = 'home';
         }
       }
+      // Module permission guard (non-admin)
+      if (state.currentUserDoc?.role !== 'admin' && !['home','my-settings','my-notes','profile','issue-dashboard'].includes(view)) {
+        const allowed = getAllowedModules();
+        if (!allowed.includes(view) && ALL_MODULES.some(m=>m.id===view)) {
+          toast('You do not have access to this module', 'warning');
+          view = 'home';
+        }
+      }
 
       state.view = view;
       const titleMap = {
@@ -1210,7 +1231,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
         'my-settings': '⚙️ My Settings',
         'recurring-tasks': '🔄 Recurring Tasks',
         'activity-logs': '📋 Activity Logs',
-        'issues': '⚠️ Issue Monitoring',
+        'issues': '⚠️ PALO Monitoring',
+        'project-detail': '📁 Project Details',
       };
       $('page-title').textContent = titleMap[view] || 'Portal';
       const contentArea = $('content-area');
@@ -1257,6 +1279,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         case 'recurring-tasks': renderRecurringTasks(); break;
         case 'activity-logs': renderActivityLogs(); break;
         case 'issues': renderIssues(); break;
+        case 'project-detail': renderProjectDetail(state._activeProjectId); break;
         default: renderHome();
       }
     };
@@ -1981,6 +2004,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       filterTasks();
     };
 
+    window.filterTasks = filterTasks;
     function filterTasks() {
       const isAdmin = state.currentUserDoc?.role === 'admin';
       const search = ($('task-search')?.value || '').toLowerCase();
@@ -2219,258 +2243,598 @@ document.addEventListener('DOMContentLoaded', ()=>{
     };
 
     /***********************
-     * PROJECTS (modern members selection, create task in modal, notes & comments)
+     * PROJECTS — Enhanced (full-page detail, agenda, timeline, task list, comments panel)
      ***********************/
     function renderProjects() {
+      const isAdmin = state.currentUserDoc?.role === 'admin';
+      const uid = currentUid();
+
+      // Show projects the user owns or is a member of (admin sees all)
+      const visible = isAdmin
+        ? state.projects
+        : state.projects.filter(p => p.owner === uid || (p.members||[]).includes(uid));
+
       const html = `
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 animate-slide-in">
-          ${state.projects.map(p => {
-            const tasks = state.tasks.filter(t => t.projectId === p.id);
-            const completed = tasks.filter(t => t.status === 'Completed').length;
-            const total = tasks.length;
-            const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
-            return `
-              <div class="bg-card border border-border rounded-xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer group" onclick="window.viewProject('${p.id}')">
-                <div class="flex justify-between items-start mb-3">
-                  <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                    <i class="fa-solid fa-folder-open"></i>
-                  </div>
-                  <span class="text-xs font-medium px-2 py-1 rounded-full ${p.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400'}">
-                    ${p.status}
-                  </span>
-                </div>
-                <h3 class="font-semibold text-lg mb-1 group-hover:text-primary transition-colors">${p.name}</h3>
-                <p class="text-sm text-muted-foreground mb-4 line-clamp-2">${(p.description||'').replace(/<[^>]+>/g,'')}</p>
-                <div class="space-y-3">
-                  <div class="flex justify-between text-xs text-muted-foreground">
-                    <span>Progress (${percent}%)</span>
-                    <span>${completed}/${total} Tasks</span>
-                  </div>
-                  <div class="h-2 w-full bg-muted rounded-full overflow-hidden">
-                    <div class="h-full bg-primary rounded-full transition-all duration-500" style="width: ${percent}%"></div>
-                  </div>
-                  <div class="flex -space-x-2 pt-2">
-                    ${(p.members||[]).map(uid => getUserAvatar(uid, 'w-7 h-7 text-xs border-2 border-card')).join('')}
-                    <div class="w-7 h-7 rounded-full bg-muted border-2 border-card flex items-center justify-center text-xs text-muted-foreground">+</div>
-                  </div>
-                </div>
+        <div class="max-w-7xl mx-auto space-y-6 animate-slide-in">
+
+          <!-- Header -->
+          <div class="bg-gradient-to-r from-primary/20 via-purple-500/10 to-transparent border border-border rounded-2xl p-6">
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h2 class="text-xl font-black flex items-center gap-2">📁 Projects</h2>
+                <p class="text-sm text-muted-foreground mt-0.5">${visible.length} project${visible.length!==1?'s':''} · Click a card to open details</p>
               </div>
-            `;
-          }).join('')}
-          ${state.currentUserDoc?.role === 'admin' ? `
-          <button onclick="window.openProjectModal()" class="border-2 border-dashed border-border rounded-xl p-5 flex flex-col items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-all min-h-[250px]">
-            <i class="fa-solid fa-plus text-3xl mb-2"></i>
-            <span class="font-medium">Create New Project</span>
-          </button>` : '' }
+              ${isAdmin ? `
+              <button onclick="window.openProjectModal()" class="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm shadow hover:bg-primary/90 transition-all flex items-center gap-2">
+                <i class="fa-solid fa-plus"></i> New Project
+              </button>` : ''}
+            </div>
+          </div>
+
+          <!-- Cards Grid -->
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            ${visible.map(p => {
+              const tasks = state.tasks.filter(t => t.projectId === p.id);
+              const completed = tasks.filter(t => t.status === 'Completed').length;
+              const total = tasks.length;
+              const pct = total === 0 ? 0 : Math.round((completed / total) * 100);
+              const openTasks = tasks.filter(t => t.status !== 'Completed' && t.status !== 'Closed').length;
+              const comments = (state.projectComments||[]).filter(c=>c.projectId===p.id);
+              const isOverdue = p.timelineEnd && new Date(p.timelineEnd) < new Date() && p.status !== 'completed';
+              const statusColor = p.status === 'completed' ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400' :
+                                  p.status === 'on-hold'   ? 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                                  'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400';
+              return `
+                <div class="bg-card border border-border rounded-2xl p-5 shadow-sm hover:shadow-lg transition-all cursor-pointer group flex flex-col gap-4" onclick="window.viewProject('${p.id}')">
+                  <!-- Card Top -->
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                      <i class="fa-solid fa-folder-open text-lg"></i>
+                    </div>
+                    <span class="px-2.5 py-1 rounded-full text-[11px] font-bold border capitalize ${statusColor}">${p.status||'active'}</span>
+                  </div>
+
+                  <!-- Title & Description -->
+                  <div>
+                    <h3 class="font-bold text-base group-hover:text-primary transition-colors line-clamp-1">${p.name}</h3>
+                    <p class="text-xs text-muted-foreground mt-1 line-clamp-2">${(p.description||'').replace(/<[^>]+>/g,'').slice(0,120) || 'No description.'}</p>
+                  </div>
+
+                  <!-- Agenda snippet -->
+                  ${p.agenda ? `<div class="bg-muted/50 rounded-lg px-3 py-2 text-xs text-muted-foreground line-clamp-2 border border-border/50">📋 ${(p.agenda||'').slice(0,100)}</div>` : ''}
+
+                  <!-- Timeline -->
+                  ${(p.timelineStart || p.timelineEnd) ? `
+                  <div class="flex items-center gap-2 text-xs ${isOverdue?'text-red-500 font-semibold':'text-muted-foreground'}">
+                    <i class="fa-regular fa-calendar text-xs"></i>
+                    <span>${p.timelineStart ? new Date(p.timelineStart).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'}</span>
+                    <span>→</span>
+                    <span>${p.timelineEnd ? new Date(p.timelineEnd).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'}</span>
+                    ${isOverdue ? '<span class="ml-auto text-[10px] font-bold bg-red-100 text-red-600 px-2 py-0.5 rounded-full dark:bg-red-900/30">⚠️ Overdue</span>' : ''}
+                  </div>` : ''}
+
+                  <!-- Progress bar -->
+                  <div class="space-y-1.5">
+                    <div class="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>${openTasks} open task${openTasks!==1?'s':''}</span>
+                      <span class="font-bold ${pct===100?'text-green-600':'text-primary'}">${pct}%</span>
+                    </div>
+                    <div class="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                      <div class="h-full bg-primary rounded-full transition-all duration-700" style="width:${pct}%"></div>
+                    </div>
+                  </div>
+
+                  <!-- Footer -->
+                  <div class="flex items-center justify-between pt-1 border-t border-border/50">
+                    <div class="flex -space-x-1.5">
+                      ${(p.members||[]).slice(0,4).map(uid => getUserAvatar(uid, 'w-6 h-6 text-[9px] border-2 border-card')).join('')}
+                      ${(p.members||[]).length > 4 ? `<div class="w-6 h-6 rounded-full bg-muted border-2 border-card flex items-center justify-center text-[9px] text-muted-foreground font-bold">+${(p.members||[]).length-4}</div>` : ''}
+                    </div>
+                    <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                      <span title="Tasks"><i class="fa-solid fa-list-check mr-1"></i>${total}</span>
+                      <span title="Comments"><i class="fa-regular fa-comment mr-1"></i>${comments.length}</span>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+
+            <!-- Create card -->
+            ${isAdmin ? `
+            <button onclick="window.openProjectModal()" class="border-2 border-dashed border-border rounded-2xl p-5 flex flex-col items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-all min-h-[200px] gap-3">
+              <div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                <i class="fa-solid fa-plus text-xl"></i>
+              </div>
+              <span class="font-semibold text-sm">New Project</span>
+            </button>` : ''}
+
+            ${visible.length === 0 && !isAdmin ? `
+            <div class="col-span-3 py-16 text-center text-muted-foreground">
+              <div class="text-4xl mb-3">📁</div>
+              <p class="font-semibold">No projects assigned yet</p>
+              <p class="text-sm mt-1">Ask your admin to add you to a project.</p>
+            </div>` : ''}
+          </div>
         </div>
       `;
       $('content-area').innerHTML = html;
     }
 
+    /* ──────────────────────────────────────────────────────────────
+       PROJECT DETAIL — Full-page (left: info+tasks, right: comments)
+    ────────────────────────────────────────────────────────────── */
     window.viewProject = function(pid) {
-      const p = state.projects.find(p => p.id === pid);
-      const tasks = state.tasks.filter(t => t.projectId === pid);
-      const completed = tasks.filter(t => t.status === 'Completed').length;
-      const total = tasks.length;
-      const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
+      state._activeProjectId = pid;
+      state.view = 'project-detail';
+      $('page-title').textContent = '📁 Project Details';
+      $('content-area').innerHTML = '';
+      $('content-area').scrollTop = 0;
+      // Update sidebar active
+      document.querySelectorAll('.nav-item').forEach(el => {
+        if (el.dataset.view === 'projects') {
+          el.classList.add('bg-primary/10','text-primary','border-r-2','border-primary');
+          el.classList.remove('text-muted-foreground','hover:bg-muted');
+        } else {
+          el.classList.remove('bg-primary/10','text-primary','border-r-2','border-primary');
+          el.classList.add('text-muted-foreground','hover:bg-muted');
+        }
+      });
+      renderProjectDetail(pid);
+    };
 
-      const content = `
-        <div class="p-6 border-b border-border flex justify-between items-center">
-          <div>
-            <h3 class="text-xl font-bold">${p.name}</h3>
-            <p class="text-xs text-muted-foreground">Owner: ${getUserName(p.owner || '')}</p>
-          </div>
-          <div class="flex items-center gap-2">
-            <button onclick="window.openTaskModal(null, '${pid}')" class="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90">
-              <i class="fa-solid fa-plus mr-1"></i> Task
-            </button>
-            <button onclick="window.closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
-          </div>
-        </div>
+    function renderProjectDetail(pid) {
+      if (!pid) return navigate('projects');
+      const p = state.projects.find(x => x.id === pid);
+      if (!p) return navigate('projects');
 
-        <div class="p-6 space-y-6">
-          <div>
-            <p class="text-foreground">${p.description || ''}</p>
+      const isAdmin = state.currentUserDoc?.role === 'admin';
+      const uid = currentUid();
+      const projTasks = state.tasks.filter(t => t.projectId === pid);
+      const completed = projTasks.filter(t => t.status === 'Completed').length;
+      const total = projTasks.length;
+      const pct = total === 0 ? 0 : Math.round((completed / total) * 100);
+      const comments = (state.projectComments||[]).filter(c => c.projectId === pid);
+      const isOverdue = p.timelineEnd && new Date(p.timelineEnd) < new Date() && p.status !== 'completed';
+
+      const statusColors = {
+        'active':    'bg-blue-100 text-blue-700 border-blue-200',
+        'completed': 'bg-green-100 text-green-700 border-green-200',
+        'on-hold':   'bg-yellow-100 text-yellow-700 border-yellow-200',
+      };
+
+      const html = `
+        <div class="max-w-7xl mx-auto animate-slide-in">
+
+          <!-- Breadcrumb + Header bar -->
+          <div class="flex items-center justify-between mb-5">
+            <div class="flex items-center gap-2 text-sm text-muted-foreground">
+              <button onclick="navigate('projects')" class="hover:text-primary transition-colors flex items-center gap-1">
+                <i class="fa-solid fa-folder-open text-xs"></i> Projects
+              </button>
+              <i class="fa-solid fa-chevron-right text-xs"></i>
+              <span class="font-semibold text-foreground truncate max-w-[260px]">${p.name}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              ${isAdmin ? `
+              <button onclick="window.openEditProjectModal('${pid}')" class="h-9 px-4 rounded-xl border border-border bg-background hover:bg-muted text-sm font-semibold transition-colors flex items-center gap-2">
+                <i class="fa-solid fa-pen text-xs"></i> Edit
+              </button>
+              <button onclick="window.deleteProject('${pid}')" class="h-9 px-3 rounded-xl border border-destructive/30 text-destructive hover:bg-destructive/10 text-sm transition-colors">
+                <i class="fa-solid fa-trash text-xs"></i>
+              </button>` : ''}
+            </div>
           </div>
 
-          <div class="grid grid-cols-2 gap-4">
-            <div class="bg-muted/50 p-4 rounded-lg border border-border">
-              <h4 class="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wider">Team Members</h4>
-              <div class="flex flex-wrap gap-2">
-                ${(p.members||[]).map(uid => `
-                  <div class="flex items-center gap-2 bg-background px-3 py-1.5 rounded-md border border-border text-sm">
-                    ${getUserAvatar(uid, 'w-5 h-5 text-xs')}
-                    ${getUserName(uid)}
+          <!-- Two-column layout -->
+          <div class="flex gap-6 items-start" style="min-height:calc(100vh - 200px)">
+
+            <!-- LEFT — Project Info + Tasks -->
+            <div class="flex-1 min-w-0 space-y-5">
+
+              <!-- Project Info Card -->
+              <div class="bg-card border border-border rounded-2xl p-6 shadow-sm">
+                <div class="flex items-start justify-between gap-4 mb-4">
+                  <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                      <i class="fa-solid fa-folder-open text-xl"></i>
+                    </div>
+                    <div>
+                      <h2 class="text-xl font-black">${p.name}</h2>
+                      <div class="flex items-center gap-2 mt-1 flex-wrap">
+                        <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold border capitalize ${statusColors[p.status||'active']||statusColors.active}">${p.status||'active'}</span>
+                        ${isOverdue ? '<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-700 border border-red-200">⚠️ Overdue</span>' : ''}
+                        <span class="text-xs text-muted-foreground">by ${getUserName(p.owner||'')}</span>
+                      </div>
+                    </div>
                   </div>
-                `).join('')}
-              </div>
-            </div>
-            <div class="bg-muted/50 p-4 rounded-lg border border-border">
-              <h4 class="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wider">Progress</h4>
-              <div class="space-y-2">
-                <div class="flex items-center justify-between text-xs">
-                  <span>${completed}/${total} tasks completed</span>
-                  <span class="font-semibold ${percent === 100 ? 'text-green-600' : 'text-primary'}">${percent}%</span>
-                </div>
-                <div class="h-2 w-full bg-muted rounded-full overflow-hidden">
-                  <div class="h-full bg-primary rounded-full" style="width:${percent}%"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <h4 class="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wider">Project Tasks</h4>
-            <div class="space-y-2">
-              ${tasks.length ? tasks.map(t => `
-                <div class="flex items-center justify-between p-3 bg-muted/30 rounded-lg border border-border/50 cursor-pointer hover:bg-muted"
-                     onclick="window.openTaskModal('${t.id}')">
-                  <div class="flex items-center gap-3">
-                    <div class="w-2 h-2 rounded-full ${getStatusColor(t.status)}"></div>
-                    <span class="text-sm font-medium ${t.status === 'Completed' ? 'line-through text-muted-foreground' : ''}">${t.title}</span>
-                    ${t.tags?.length ? `<span class="text-[11px] text-muted-foreground">• ${t.tags.join(', ')}</span>` : ''}
+                  <!-- Progress ring summary -->
+                  <div class="text-right shrink-0">
+                    <div class="text-3xl font-black ${pct===100?'text-green-600':'text-primary'}">${pct}%</div>
+                    <div class="text-xs text-muted-foreground">${completed}/${total} tasks</div>
                   </div>
-                  <span class="text-xs px-2 py-1 rounded bg-background border border-border">${t.status}</span>
                 </div>
-              `).join('') : '<p class="text-sm text-muted-foreground italic">No tasks assigned to this project yet.</p>'}
-            </div>
-          </div>
 
-          <div class="grid grid-cols-2 gap-4">
-            <div class="bg-muted/30 rounded-lg border border-border p-4">
-              <h4 class="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wider">Notes</h4>
-              <textarea id="proj-notes" rows="4" class="w-full px-3 py-2 rounded-md border border-input bg-background text-sm">${p.notes || ''}</textarea>
-              <div class="mt-2 text-right">
-                <button onclick="window.saveProjectNotes('${p.id}')" class="text-xs px-3 py-1.5 rounded bg-primary text-white hover:bg-primary/90">Save Notes</button>
-              </div>
-            </div>
+                <!-- Progress bar -->
+                <div class="h-2 w-full bg-muted rounded-full overflow-hidden mb-5">
+                  <div class="h-full bg-primary rounded-full transition-all duration-700" style="width:${pct}%"></div>
+                </div>
 
-            <div class="bg-muted/30 rounded-lg border border-border p-4">
-              <h4 class="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wider">Comments</h4>
-              <div class="space-y-2 max-h-48 overflow-y-auto" id="proj-comments">
-                ${(p.comments||[]).map(c => `
-                  <div class="text-sm">
-                    <span class="font-semibold text-primary">${getUserName(c.userId)}</span>
-                    <span class="text-[11px] text-muted-foreground"> • ${timeAgo(c.date)}</span>
-                    <div>${c.text}</div>
+                <!-- Info grid -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+                  <!-- Description -->
+                  <div class="md:col-span-2">
+                    <p class="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-2"><span class="w-3 h-0.5 bg-primary inline-block"></span> Description</p>
+                    <div class="text-sm text-foreground leading-relaxed ql-render">${p.description || '<span class="text-muted-foreground italic">No description provided.</span>'}</div>
                   </div>
-                `).join('')}
+
+                  <!-- Agenda -->
+                  ${p.agenda ? `
+                  <div class="md:col-span-2 bg-muted/40 rounded-xl p-4 border border-border/60">
+                    <p class="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-2"><span class="w-3 h-0.5 bg-primary inline-block"></span> Agenda</p>
+                    <p class="text-sm text-foreground leading-relaxed whitespace-pre-wrap">${p.agenda}</p>
+                  </div>` : ''}
+
+                  <!-- Timeline -->
+                  <div class="bg-muted/40 rounded-xl p-4 border border-border/60">
+                    <p class="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2"><span class="w-3 h-0.5 bg-primary inline-block"></span> Timeline</p>
+                    <div class="flex items-center gap-3 text-sm">
+                      <div class="flex-1 text-center">
+                        <div class="text-xs text-muted-foreground mb-1">Start</div>
+                        <div class="font-semibold ${!p.timelineStart?'text-muted-foreground italic text-xs':''}">${p.timelineStart ? new Date(p.timelineStart).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : 'Not set'}</div>
+                      </div>
+                      <div class="text-muted-foreground"><i class="fa-solid fa-arrow-right text-xs"></i></div>
+                      <div class="flex-1 text-center">
+                        <div class="text-xs text-muted-foreground mb-1">End</div>
+                        <div class="font-semibold ${isOverdue?'text-red-500':''}  ${!p.timelineEnd?'text-muted-foreground italic text-xs':''}">${p.timelineEnd ? new Date(p.timelineEnd).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : 'Not set'}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Team -->
+                  <div class="bg-muted/40 rounded-xl p-4 border border-border/60">
+                    <p class="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2"><span class="w-3 h-0.5 bg-primary inline-block"></span> Team (${(p.members||[]).length})</p>
+                    <div class="flex flex-wrap gap-2">
+                      ${(p.members||[]).map(m => `
+                        <div class="flex items-center gap-1.5 bg-background px-2.5 py-1 rounded-full border border-border text-xs font-medium">
+                          ${getUserAvatar(m,'w-5 h-5 text-[9px]')}
+                          ${getUserName(m)}
+                        </div>`).join('') || '<span class="text-xs text-muted-foreground italic">No members</span>'}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div class="mt-2 flex gap-2">
-                <input id="proj-comment-input" placeholder="Write a comment... Use @ to tag" class="flex-1 h-9 px-3 rounded border border-input bg-background text-sm">
-                <button onclick="window.addProjectComment('${p.id}')" class="text-sm px-3 py-1.5 rounded bg-primary text-white hover:bg-primary/90">Post</button>
+
+              <!-- Tasks Panel -->
+              <div class="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
+                <div class="px-6 py-4 border-b border-border bg-muted/30 flex items-center justify-between">
+                  <div>
+                    <h3 class="font-bold flex items-center gap-2">✅ Project Tasks</h3>
+                    <p class="text-xs text-muted-foreground mt-0.5">${total} tasks · ${completed} completed</p>
+                  </div>
+                  <button onclick="window.openProjectTaskModal('${pid}')" class="h-9 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-bold hover:bg-primary/90 transition-all shadow-sm flex items-center gap-2">
+                    <i class="fa-solid fa-plus text-xs"></i> Add Task
+                  </button>
+                </div>
+
+                <!-- Task Filter Tabs -->
+                <div class="px-6 pt-4 flex gap-2 flex-wrap" id="proj-task-tabs">
+                  ${['All','Open','In Progress','For Review','Completed'].map(s => `
+                    <button onclick="window.filterProjTasks('${pid}','${s}')" data-tab="${s}"
+                      class="proj-tab px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${s==='All'?'bg-primary text-primary-foreground border-primary':'border-border text-muted-foreground hover:border-primary hover:text-primary'}">
+                      ${s} ${s==='All'?`(${total})`:s==='Completed'?`(${completed})`:`(${projTasks.filter(t=>t.status===s).length})`}
+                    </button>`).join('')}
+                </div>
+
+                <div id="proj-task-list" class="p-6 space-y-2.5">
+                  ${renderProjectTaskRows(projTasks, 'All', pid)}
+                </div>
               </div>
             </div>
-          </div>
-        </div>
 
-        <div class="p-6 border-t border-border bg-muted/30 flex justify-end">
-          <button onclick="window.closeModal()" class="px-4 py-2 rounded-md border border-input bg-background hover:bg-muted text-sm font-medium">Close</button>
+            <!-- RIGHT — Comments & Notes Panel -->
+            <div class="w-80 shrink-0 sticky top-4">
+              <div class="bg-card border border-border rounded-2xl shadow-sm flex flex-col" style="max-height: calc(100vh - 130px);">
+                <div class="px-5 py-4 border-b border-border bg-muted/30 rounded-t-2xl">
+                  <h3 class="font-bold flex items-center gap-2">💬 Discussion</h3>
+                  <p class="text-xs text-muted-foreground mt-0.5">${comments.length} comment${comments.length!==1?'s':''} · Team updates & notes</p>
+                </div>
+
+                <!-- Comment Feed -->
+                <div id="proj-comment-feed" class="flex-1 overflow-y-auto px-4 py-4 space-y-4" style="max-height:calc(100vh - 320px)">
+                  ${comments.length === 0 ? `
+                    <div class="text-center py-8">
+                      <div class="text-3xl mb-2">💬</div>
+                      <p class="text-xs text-muted-foreground">No comments yet.<br>Start the discussion!</p>
+                    </div>` : comments.map(c => buildCommentBubble(c)).join('')}
+                </div>
+
+                <!-- Comment Composer -->
+                <div class="px-4 pb-4 pt-3 border-t border-border">
+                  <div class="flex items-start gap-2.5">
+                    ${getUserAvatar(uid, 'w-8 h-8 text-xs shrink-0 mt-0.5')}
+                    <div class="flex-1 space-y-2">
+                      <textarea id="proj-comment-input" rows="2" placeholder="Write a comment… use @name to mention"
+                        class="w-full px-3 py-2 text-sm rounded-xl border border-input bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                        onkeydown="if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))window.postProjectComment('${pid}')"></textarea>
+                      <div class="flex items-center justify-between">
+                        <span class="text-[10px] text-muted-foreground">Ctrl+Enter to post</span>
+                        <button onclick="window.postProjectComment('${pid}')" class="h-8 px-4 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:bg-primary/90 transition-all">
+                          Post
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
         </div>
       `;
-      showModal(content);
+      $('content-area').innerHTML = html;
+
+      // Scroll comment feed to bottom
+      const feed = $('proj-comment-feed');
+      if (feed) feed.scrollTop = feed.scrollHeight;
+    }
+
+    function buildCommentBubble(c) {
+      const isMine = c.userId === currentUid();
+      return `
+        <div class="flex gap-2.5 ${isMine ? 'flex-row-reverse' : ''}">
+          ${getUserAvatar(c.userId, 'w-7 h-7 text-[9px] shrink-0 mt-0.5')}
+          <div class="flex-1 min-w-0 ${isMine ? 'items-end' : ''}">
+            <div class="flex items-center gap-1.5 mb-1 ${isMine ? 'flex-row-reverse' : ''}">
+              <span class="text-xs font-bold truncate">${getUserName(c.userId)}</span>
+              <span class="text-[10px] text-muted-foreground">${timeAgo(c.createdAt)}</span>
+            </div>
+            <div class="px-3 py-2 rounded-2xl text-xs leading-relaxed max-w-[220px] break-words
+              ${isMine ? 'bg-primary text-primary-foreground rounded-tr-sm ml-auto' : 'bg-muted text-foreground rounded-tl-sm'}">
+              ${(c.text||'').replace(/\n/g,'<br>')}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderProjectTaskRows(tasks, filter, pid) {
+      const filtered = filter === 'All' ? tasks : tasks.filter(t => t.status === filter);
+      if (!filtered.length) return `<div class="text-center py-6 text-muted-foreground text-sm">No tasks ${filter !== 'All' ? `with status "${filter}"` : 'yet'}. Click <strong>Add Task</strong> to get started.</div>`;
+
+      const priorityColor = { High:'bg-red-500', Medium:'bg-yellow-500', Low:'bg-blue-400' };
+      return filtered.map(t => {
+        const isOverdue = t.dueDate && new Date(t.dueDate) < new Date() && t.status !== 'Completed';
+        const assignees = (t.assignedToList||[t.assignedTo]).filter(Boolean);
+        return `
+          <div class="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-muted/40 transition-colors cursor-pointer group" onclick="window.openTaskModal('${t.id}')">
+            <!-- Status dot -->
+            <div class="w-2.5 h-2.5 rounded-full shrink-0 ${getStatusColor(t.status)}"></div>
+
+            <!-- Main info -->
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-medium truncate ${t.status==='Completed'?'line-through text-muted-foreground':''}">${t.title}</span>
+                ${t.priority ? `<span class="w-1.5 h-1.5 rounded-full shrink-0 ${priorityColor[t.priority]||'bg-gray-400'}"></span>` : ''}
+              </div>
+              <div class="flex items-center gap-3 mt-0.5">
+                <span class="text-[10px] text-muted-foreground">${t.taskType||''}</span>
+                ${t.dueDate ? `<span class="text-[10px] ${isOverdue?'text-red-500 font-semibold':'text-muted-foreground'}">${isOverdue?'⚠️ ':''} ${new Date(t.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span>` : ''}
+                ${(t.checklist||[]).length ? `<span class="text-[10px] text-muted-foreground">☑ ${(t.checklist||[]).filter(x=>x.done).length}/${(t.checklist||[]).length}</span>` : ''}
+              </div>
+            </div>
+
+            <!-- Assignees -->
+            <div class="flex -space-x-1 shrink-0">
+              ${assignees.slice(0,3).map(uid => getUserAvatar(uid,'w-6 h-6 text-[9px] border-2 border-card')).join('')}
+            </div>
+
+            <!-- Status badge -->
+            <span class="shrink-0 text-[10px] px-2 py-0.5 rounded-full font-semibold border ${getStatusBadgeClass(t.status)} hidden group-hover:inline-flex">${t.status}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    window.filterProjTasks = function(pid, filter) {
+      // Update tab styles
+      document.querySelectorAll('.proj-tab').forEach(btn => {
+        const isActive = btn.dataset.tab === filter;
+        btn.classList.toggle('bg-primary', isActive);
+        btn.classList.toggle('text-primary-foreground', isActive);
+        btn.classList.toggle('border-primary', isActive);
+        btn.classList.toggle('border-border', !isActive);
+        btn.classList.toggle('text-muted-foreground', !isActive);
+      });
+      // Re-render task list
+      const projTasks = state.tasks.filter(t => t.projectId === pid);
+      const listEl = $('proj-task-list');
+      if (listEl) listEl.innerHTML = renderProjectTaskRows(projTasks, filter, pid);
     };
 
-    window.saveProjectNotes = async function(pid) {
-      const notes = $('proj-notes').value || '';
-      try {
-        await updateDoc(doc(db,'projects', pid), { notes });
-        toast('Notes saved');
-      } catch(e) { console.error(e); toast('Failed to save notes','error'); }
-    };
-
-    window.addProjectComment = async function(pid) {
-      const p = state.projects.find(x => x.id === pid);
+    window.postProjectComment = async function(pid) {
       const input = $('proj-comment-input');
-      const text = input.value.trim();
-      if (!text) return;
-      const comments = p.comments || [];
-      const newC = { userId: currentUid(), text, date: new Date().toISOString() };
-      comments.push(newC);
-
-      // mentions
-      const mentioned = text.match(/@([\w.-]+)/g);
-      if (mentioned) {
-        mentioned.forEach(m => {
-          const uname = m.substring(1).toLowerCase();
-          const user = state.users.find(u => (u.name||'').toLowerCase().includes(uname) || (u.email||'').toLowerCase().startsWith(uname));
-          if (user) notify(user.id, `You were mentioned in project "${p.name}"`, `projects:${pid}`, 'mention');
-        });
-      }
+      const text = (input?.value||'').trim();
+      if (!text) return toast('Enter a comment first', 'warning');
+      const uid = currentUid();
+      const p = state.projects.find(x => x.id === pid);
       try {
-        await updateDoc(doc(db,'projects', pid), { comments });
-        input.value = '';
-        viewProject(pid);
-      } catch(e) { console.error(e); toast('Failed to comment','error'); }
+        await addDoc(collection(db,'project_comments'), {
+          projectId: pid,
+          userId: uid,
+          text,
+          createdAt: serverTimestamp()
+        });
+        if (input) input.value = '';
+        // Handle @mentions
+        const mentioned = text.match(/@([\w.-]+)/g);
+        if (mentioned && p) {
+          mentioned.forEach(m => {
+            const uname = m.substring(1).toLowerCase();
+            const user = state.users.find(u => (u.name||'').toLowerCase().includes(uname) || (u.email||'').toLowerCase().startsWith(uname));
+            if (user && user.id !== uid) notify(user.id, `💬 ${getUserName(uid)} mentioned you in "${p.name}"`, `projects:${pid}`, 'mention');
+          });
+        }
+        await logActivity('comment', 'Projects', `Commented on project: ${p?.name||pid}`);
+      } catch(e) { console.error(e); toast('Failed to post comment','error'); }
     };
 
-    window.openProjectModal = function() {
+    /* open a task modal pre-linked to this project */
+    window.openProjectTaskModal = function(pid) {
+      window.openTaskModal(null, pid);
+    };
+
+    /* ─────────────────────────────────────────
+       PROJECT CREATE MODAL (enhanced)
+    ───────────────────────────────────────── */
+    window.openProjectModal = function(editId=null) {
       const isAdmin = state.currentUserDoc?.role === 'admin';
       if (!isAdmin) return toast('Only admin can create projects', 'warning');
-      const id = 'proj-desc-editor';
+      const isEdit = !!editId;
+      const p = isEdit ? state.projects.find(x=>x.id===editId) : {};
+      const e = p || {};
+
       const content = `
-        <div class="p-6 border-b border-border flex justify-between items-center">
-          <h3 class="text-lg font-semibold">New Project</h3>
+        <div class="p-6 border-b border-border flex justify-between items-center bg-muted/30 rounded-t-xl">
+          <div>
+            <h3 class="font-bold text-lg">${isEdit ? '✏️ Edit Project' : '📁 New Project'}</h3>
+            <p class="text-xs text-muted-foreground mt-0.5">${isEdit ? 'Update project details' : 'Create a new project and assign tasks to team members'}</p>
+          </div>
           <button onclick="window.closeModal()" class="text-muted-foreground hover:text-foreground"><i class="fa-solid fa-xmark text-xl"></i></button>
         </div>
-        <div class="p-6 space-y-4">
+
+        <div class="p-6 space-y-5 overflow-y-auto max-h-[72vh]">
+
+          <!-- Title -->
           <div>
-            <label class="block text-sm font-medium mb-1">Project Name</label>
-            <input id="p-name" class="w-full h-10 px-3 rounded-md border border-input bg-background"/>
+            <label class="text-xs font-bold text-muted-foreground uppercase tracking-widest block mb-2">Project Title <span class="text-destructive">*</span></label>
+            <input id="p-name" value="${(e.name||'').replace(/"/g,'&quot;')}" placeholder="e.g. Q3 Sales Campaign"
+              class="w-full h-11 px-4 rounded-xl border border-input bg-background text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-ring">
           </div>
+
+          <!-- Description -->
           <div>
-            <label class="block text-sm font-medium mb-1">Description</label>
-            <div id="${id}-mount"></div>
+            <label class="text-xs font-bold text-muted-foreground uppercase tracking-widest block mb-2">Description</label>
+            <div id="proj-desc-editor-mount"></div>
           </div>
+
+          <!-- Agenda -->
+          <div>
+            <label class="text-xs font-bold text-muted-foreground uppercase tracking-widest block mb-2">Agenda</label>
+            <textarea id="p-agenda" rows="3" placeholder="Outline the key agenda points, goals, or objectives for this project…"
+              class="w-full px-4 py-3 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none">${e.agenda||''}</textarea>
+          </div>
+
+          <!-- Timeline -->
+          <div>
+            <label class="text-xs font-bold text-muted-foreground uppercase tracking-widest block mb-2">Timeline</label>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="text-xs text-muted-foreground block mb-1.5">Start Date</label>
+                <input id="p-timeline-start" type="date" value="${e.timelineStart||''}"
+                  class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+              </div>
+              <div>
+                <label class="text-xs text-muted-foreground block mb-1.5">End Date</label>
+                <input id="p-timeline-end" type="date" value="${e.timelineEnd||''}"
+                  class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+              </div>
+            </div>
+          </div>
+
+          <!-- Status + Members -->
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <label class="block text-sm font-medium mb-1">Status</label>
-              <select id="p-status" class="w-full h-10 px-3 rounded-md border border-input bg-background">
-                <option value="active">active</option>
-                <option value="completed">completed</option>
+              <label class="text-xs font-bold text-muted-foreground uppercase tracking-widest block mb-2">Status</label>
+              <select id="p-status" class="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                <option value="active" ${(e.status||'active')==='active'?'selected':''}>🔵 Active</option>
+                <option value="on-hold" ${e.status==='on-hold'?'selected':''}>⏸️ On Hold</option>
+                <option value="completed" ${e.status==='completed'?'selected':''}>✅ Completed</option>
               </select>
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1">Members</label>
+              <label class="text-xs font-bold text-muted-foreground uppercase tracking-widest block mb-2">Team Members</label>
               <div id="ms-p-members"></div>
             </div>
           </div>
         </div>
-        <div class="p-6 border-t border-border bg-muted/30 flex justify-end gap-3">
-          <button onclick="window.closeModal()" class="px-4 py-2 rounded-md border border-input bg-background hover:bg-muted text-sm font-medium">Cancel</button>
-          <button onclick="window.saveProject('${id}')" class="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium">Create Project</button>
+
+        <div class="p-6 border-t border-border bg-muted/30 rounded-b-xl flex justify-end gap-3">
+          <button onclick="window.closeModal()" class="px-4 py-2 rounded-xl border border-input bg-background hover:bg-muted text-sm font-medium">Cancel</button>
+          <button onclick="window.saveProject('${editId||''}')" class="px-6 py-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-bold shadow-sm">
+            ${isEdit ? '💾 Update Project' : '🚀 Create Project'}
+          </button>
         </div>
       `;
       showModal(content);
-      EditorManager.init(`${id}-mount`, { placeholder: 'Describe the project…' });
+      EditorManager.init('proj-desc-editor-mount', { placeholder: 'Describe this project, its scope, and objectives…', minHeight: '100px' });
+      if (e.description) EditorManager.setHTML('proj-desc-editor-mount', e.description);
 
-      // init modern members multi-select
-      const memberOptions = state.users
-        .filter(u => u.status !== 'inactive')
-        .map(u => ({ value: u.id, label: u.name || u.email }));
-      initMultiSelect('p-members', 'ms-p-members', memberOptions, [], 'Select members...', true, (o, chip) => {
+      const memberOptions = state.users.filter(u => u.status !== 'inactive').map(u => ({ value: u.id, label: u.name || u.email }));
+      const defaultMembers = e.members || [];
+      initMultiSelect('p-members', 'ms-p-members', memberOptions, defaultMembers, 'Select members…', true, (o, chip) => {
         if (chip === true) return (state.users.find(u => u.id===o)?.name || state.users.find(u => u.id===o)?.email || o);
         if (typeof o === 'string') return (state.users.find(u=>u.id===o)?.name || o);
         return o.label;
       });
     };
 
-    window.saveProject = async function(editorId) {
-      const name = $('p-name').value.trim();
-      if (!name) return toast('Project name required', 'error');
-      const desc = EditorManager.getHTML(`proj-desc-mount`) || '';
+    window.openEditProjectModal = function(pid) { window.openProjectModal(pid); };
+
+    window.saveProject = async function(editId) {
+      const name = $('p-name')?.value?.trim();
+      if (!name) return toast('Project title is required', 'error');
+      const description = EditorManager.getHTML('proj-desc-editor-mount') || '';
+      const agenda = $('p-agenda')?.value?.trim() || '';
+      const timelineStart = $('p-timeline-start')?.value || '';
+      const timelineEnd = $('p-timeline-end')?.value || '';
+      const status = $('p-status')?.value || 'active';
       const members = getMultiSelectValues('p-members');
-      const status = $('p-status').value || 'active';
+
+      const payload = { name, description, agenda, timelineStart, timelineEnd, status, members, updatedAt: serverTimestamp() };
+
       try {
-        const added = await addDoc(collection(db, 'projects'), {
-          name, description: desc, owner: currentUid(), members, status,
-          progress: 0, createdAt: new Date().toISOString(), milestones: [], notes: '', comments: []
-        });
-        // notify members
-        members.forEach(uid => notify(uid, `You were added to project "${name}"`, `projects:${added.id}`, 'project'));
-        closeModal(); toast('Project created');
-      } catch (e) { console.error(e); toast('Failed to create project','error'); }
+        if (editId) {
+          await updateDoc(doc(db,'projects',editId), payload);
+          toast('✅ Project updated!');
+          await logActivity('update', 'Projects', `Updated project: ${name}`);
+          closeModal();
+          renderProjectDetail(editId);
+        } else {
+          const added = await addDoc(collection(db,'projects'), {
+            ...payload,
+            owner: currentUid(),
+            progress: 0,
+            createdAt: serverTimestamp(),
+            notes: '',
+            comments: []
+          });
+          members.forEach(uid => notify(uid, `📁 You were added to project "${name}"`, `projects:${added.id}`, 'info'));
+          toast('✅ Project created!');
+          await logActivity('create', 'Projects', `Created project: ${name}`);
+          closeModal();
+          navigate('projects');
+        }
+      } catch(e) { console.error(e); toast('Failed to save project','error'); }
     };
+
+    window.deleteProject = async function(pid) {
+      if (!confirm('Delete this project? All associated data will be removed.')) return;
+      try {
+        await deleteDoc(doc(db,'projects',pid));
+        toast('Project deleted');
+        await logActivity('delete','Projects',`Deleted project ID: ${pid}`);
+        navigate('projects');
+      } catch(e) { console.error(e); toast('Failed to delete project','error'); }
+    };
+
+    // Keep backward compat stubs
+    window.saveProjectNotes = async function(pid) {
+      const notes = $('proj-notes')?.value || '';
+      try { await updateDoc(doc(db,'projects',pid), { notes }); toast('Notes saved'); }
+      catch(e) { toast('Failed to save notes','error'); }
+    };
+    window.addProjectComment = window.postProjectComment;
 
     /***********************
      * ANNOUNCEMENTS (unchanged behavior; mentions notify)
@@ -3748,11 +4112,33 @@ document.addEventListener('DOMContentLoaded', ()=>{
       `;
     }
 
+    // Master module list — auto-updated when new modules are added
+    const ALL_MODULES = [
+      { id: 'home',            emoji: '🏠', label: 'Home' },
+      { id: 'kanban',          emoji: '📋', label: 'Task Board' },
+      { id: 'tasks',           emoji: '✅', label: 'All Tasks' },
+      { id: 'projects',        emoji: '📁', label: 'Projects' },
+      { id: 'announcements',   emoji: '📢', label: 'Team Feed' },
+      { id: 'learning',        emoji: '🎓', label: 'Learning Hub' },
+      { id: 'rates',           emoji: '💰', label: 'Rates' },
+      { id: 'quizzes',         emoji: '🧠', label: 'Quizzes' },
+      { id: 'meetings',        emoji: '📅', label: 'Meetings' },
+      { id: 'my-notes',        emoji: '📓', label: 'My Notes' },
+      { id: 'expenses',        emoji: '💸', label: 'Expenses' },
+      { id: 'issues',          emoji: '⚠️', label: 'PALO' },
+      { id: 'calendar',        emoji: '🗓️', label: 'Calendar' },
+    ];
+
     function renderSettings() {
+      const users = (state.users||[]).filter(u => u.role !== 'admin' && u.status !== 'inactive');
+      const modulePerms = state.settings.modulePermissions || {};
+
       const html = `
-        <div class="max-w-2xl mx-auto space-y-6 animate-slide-in">
-          <div class="bg-card border border-border rounded-xl p-6 shadow-sm">
-            <h3 class="text-lg font-semibold mb-4">Global Settings</h3>
+        <div class="max-w-3xl mx-auto space-y-6 animate-slide-in">
+
+          <!-- Global Config -->
+          <div class="bg-card border border-border rounded-2xl p-6 shadow-sm">
+            <h3 class="text-lg font-bold mb-5 flex items-center gap-2">⚙️ Global Configuration</h3>
             <div class="space-y-6">
               ${chipEditor('clusters','Clusters', state.settings.clusters)}
               ${chipEditor('statuses','Task Statuses', state.settings.statuses)}
@@ -3760,13 +4146,113 @@ document.addEventListener('DOMContentLoaded', ()=>{
               ${chipEditor('taskTags','Default Tags', state.settings.taskTags || [])}
               ${chipEditor('meetingTypes','Meeting Types', state.settings.meetingTypes || ['Regular Meeting','Emergency Meeting','Board Meeting','Planning Session','Review Meeting'])}
             </div>
-            <div class="mt-6 flex justify-end gap-3">
-              <button onclick="window.saveSettings()" class="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium">Save Settings</button>
+            <div class="mt-6 flex justify-end">
+              <button onclick="window.saveSettings()" class="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-bold shadow">💾 Save Settings</button>
             </div>
+          </div>
+
+          <!-- Module Access Control -->
+          <div class="bg-card border border-border rounded-2xl p-6 shadow-sm">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-lg font-bold flex items-center gap-2">🔒 Module Access Control</h3>
+              <span class="text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-full">Per-user module visibility</span>
+            </div>
+            <p class="text-xs text-muted-foreground mb-5">Control which modules each non-admin user can see and access. Admins always have full access. New modules are automatically added to this list.</p>
+
+            ${users.length === 0 ? `<p class="text-sm text-muted-foreground text-center py-6">No non-admin users found.</p>` : `
+
+            <!-- Module legend header -->
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs">
+                <thead>
+                  <tr>
+                    <th class="text-left pb-3 pr-4 font-semibold text-muted-foreground min-w-[140px]">User</th>
+                    ${ALL_MODULES.map(m=>`<th class="pb-3 px-1 text-center font-medium text-muted-foreground min-w-[52px]" title="${m.label}">
+                      <div class="text-base leading-none">${m.emoji}</div>
+                      <div class="text-[9px] mt-0.5 leading-tight">${m.label.split(' ')[0]}</div>
+                    </th>`).join('')}
+                    <th class="pb-3 px-2 text-center text-muted-foreground">All</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-border">
+                  ${users.map(u => {
+                    const allowed = modulePerms[u.id] ?? ALL_MODULES.map(m=>m.id); // default: all allowed
+                    const allChecked = ALL_MODULES.every(m=>allowed.includes(m.id));
+                    return `<tr class="hover:bg-muted/20 transition-colors">
+                      <td class="py-2.5 pr-4">
+                        <div class="flex items-center gap-2">
+                          ${getUserAvatar(u.id,'w-6 h-6 text-[10px]')}
+                          <span class="font-medium truncate max-w-[100px]">${u.name||u.email}</span>
+                        </div>
+                      </td>
+                      ${ALL_MODULES.map(m=>`
+                        <td class="py-2.5 px-1 text-center">
+                          <input type="checkbox" data-uid="${u.id}" data-mid="${m.id}"
+                            class="module-perm-cb w-4 h-4 rounded accent-primary cursor-pointer"
+                            ${allowed.includes(m.id)?'checked':''}
+                            onchange="window.onModulePermChange('${u.id}','${m.id}',this.checked)">
+                        </td>`).join('')}
+                      <td class="py-2.5 px-2 text-center">
+                        <input type="checkbox" class="row-all-cb w-4 h-4 rounded accent-primary cursor-pointer" ${allChecked?'checked':''}
+                          data-uid="${u.id}"
+                          onchange="window.toggleAllModulesForUser('${u.id}',this.checked)">
+                      </td>
+                    </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+
+            <div class="mt-5 flex justify-between items-center">
+              <p class="text-xs text-muted-foreground">Changes are saved automatically per toggle. Sidebar updates on next login.</p>
+              <button onclick="window.saveModulePermissions()" class="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-bold shadow">💾 Save Permissions</button>
+            </div>
+            `}
           </div>
         </div>
       `;
       $('content-area').innerHTML = html;
+    }
+
+    window.onModulePermChange = function(uid, mid, checked) {
+      const mp = state.settings.modulePermissions || {};
+      if (!mp[uid]) mp[uid] = ALL_MODULES.map(m=>m.id);
+      if (checked) { if (!mp[uid].includes(mid)) mp[uid].push(mid); }
+      else { mp[uid] = mp[uid].filter(x=>x!==mid); }
+      state.settings.modulePermissions = mp;
+      // Update "all" checkbox for this row
+      const allCb = document.querySelector(`.row-all-cb[data-uid="${uid}"]`);
+      if (allCb) allCb.checked = ALL_MODULES.every(m=>mp[uid].includes(m.id));
+    };
+
+    window.toggleAllModulesForUser = function(uid, checked) {
+      const mp = state.settings.modulePermissions || {};
+      mp[uid] = checked ? ALL_MODULES.map(m=>m.id) : ['home'];
+      state.settings.modulePermissions = mp;
+      document.querySelectorAll(`.module-perm-cb[data-uid="${uid}"]`).forEach(cb => {
+        cb.checked = checked || cb.dataset.mid === 'home';
+      });
+    };
+
+    window.saveModulePermissions = async function() {
+      try {
+        await updateDoc(doc(db,'settings','global'), {
+          modulePermissions: state.settings.modulePermissions || {},
+          updatedAt: serverTimestamp()
+        });
+        toast('✅ Module permissions saved!');
+        await logActivity('settings','Admin Settings','Updated module access permissions');
+      } catch(e) { console.error(e); toast('Failed to save permissions','error'); }
+    };
+
+    // Helper: get allowed modules for current user
+    function getAllowedModules() {
+      const isAdmin = state.currentUserDoc?.role === 'admin';
+      if (isAdmin) return ALL_MODULES.map(m=>m.id);
+      const uid = currentUid();
+      const mp = state.settings.modulePermissions || {};
+      if (!mp[uid]) return ALL_MODULES.map(m=>m.id); // default: all
+      return mp[uid];
     }
 
     window.saveSettings = async function() {
@@ -7085,12 +7571,18 @@ document.addEventListener('DOMContentLoaded', ()=>{
           <div class="bg-gradient-to-r from-orange-500/20 via-red-400/10 to-transparent border border-border rounded-2xl p-6">
             <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <h2 class="text-xl font-black flex items-center gap-2">⚠️ Issue Monitoring & Action Plan Tracker</h2>
+                <h2 class="text-xl font-black flex items-center gap-2">⚠️ PALO Monitoring & Action Plan Tracker</h2>
                 <p class="text-sm text-muted-foreground mt-0.5">${issues.length} total issues recorded</p>
               </div>
               <div class="flex gap-2 flex-wrap">
                 <button onclick="window.navigate('issue-dashboard')" class="px-4 py-2 bg-muted border border-border rounded-xl font-semibold text-sm hover:bg-muted/80 transition-all flex items-center gap-2">
                   📊 Dashboard
+                </button>
+                <button onclick="window.downloadIssuesCSV()" class="px-4 py-2 bg-muted border border-border rounded-xl font-semibold text-sm hover:bg-muted/80 transition-all flex items-center gap-2">
+                  📥 CSV
+                </button>
+                <button onclick="window.printIssuesReport()" class="px-4 py-2 bg-muted border border-border rounded-xl font-semibold text-sm hover:bg-muted/80 transition-all flex items-center gap-2">
+                  🖨️ Print
                 </button>
                 <button onclick="window.openIssueModal()" class="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm shadow hover:bg-primary/90 transition-all">
                   ＋ New Issue
@@ -7167,7 +7659,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
                     <th class="px-4 py-3 text-left w-8">#</th>
                     <th class="px-4 py-3 text-left">Month</th>
                     <th class="px-4 py-3 text-left">Issue No.</th>
-                    <th class="px-4 py-3 text-left">PALO #</th>
+                    <th class="px-4 py-3 text-left">Ref. No.</th>
                     <th class="px-4 py-3 text-left min-w-[180px]">Issue / Topic</th>
                     <th class="px-4 py-3 text-left min-w-[180px]">Action Plan</th>
                     <th class="px-4 py-3 text-left">Responsible</th>
@@ -7292,13 +7784,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
               </div>
               <div class="flex-1 bg-muted/50 border border-border rounded-xl px-4 py-2.5 flex items-center gap-2">
                 <i class="fa-solid fa-tag text-xs text-muted-foreground"></i>
-                <span class="text-xs text-muted-foreground font-semibold">PALO #</span>
+                <span class="text-xs text-muted-foreground font-semibold">Ref. No.</span>
                 <span class="text-xs font-mono font-bold text-primary ml-auto">${i.paloNumber||'—'}</span>
               </div>
             </div>` : `
             <p class="text-[11px] text-muted-foreground mt-1 flex items-center gap-1.5 bg-muted/40 border border-border rounded-lg px-3 py-2">
               <i class="fa-solid fa-circle-info text-primary/70"></i>
-              <span><strong>Issue Number</strong> and <strong>PALO Number</strong> will be auto-generated upon saving.</span>
+              <span><strong>Issue Number</strong> and <strong>Reference No.</strong> will be auto-generated upon saving.</span>
             </p>`}
             <div class="mt-4">
               <label class="text-xs font-semibold text-muted-foreground block mb-1.5">Issue / Topic <span class="text-destructive">*</span></label>
@@ -7382,7 +7874,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         closingMonth = MONTHS[cd.getMonth()];
       }
 
-      // Auto-generate Issue Number and PALO Number for new issues
+      // Auto-generate Issue Number and Reference No. for new issues
       let issueNumber = '';
       let paloNumber = '';
       if (!issueId) {
@@ -7390,7 +7882,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         const nextNum = existingNums.length > 0 ? Math.max(...existingNums) + 1 : 1;
         issueNumber = String(nextNum).padStart(3, '0');
         const yr = new Date().getFullYear();
-        paloNumber = `PALO-${yr}-${issueNumber}`;
+        paloNumber = `REF-${yr}-${issueNumber}`;
       }
 
       const payload = {
@@ -7411,11 +7903,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
         if (issueId) {
           await updateDoc(doc(db,'issues',issueId), payload);
           toast('✅ Issue updated!');
-          await logActivity('update', 'Issue Tracker', `Updated issue: ${issueTopic.slice(0,60)}`);
+          await logActivity('update', 'PALO', `Updated issue: ${issueTopic.slice(0,60)}`);
         } else {
           await addDoc(collection(db,'issues'), { ...payload, createdBy: currentUid(), createdAt: serverTimestamp() });
           toast('✅ Issue saved!');
-          await logActivity('create', 'Issue Tracker', `New issue: ${issueTopic.slice(0,60)}`);
+          await logActivity('create', 'PALO', `New issue: ${issueTopic.slice(0,60)}`);
         }
         closeModal();
         navigate('issues');
@@ -7430,7 +7922,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
           status: 'CLOSED', closingDate: today, closingMonth, updatedAt: serverTimestamp()
         });
         toast('✅ Issue marked as Closed!');
-        await logActivity('close', 'Issue Tracker', `Closed issue ID: ${issueId}`);
+        await logActivity('close', 'PALO', `Closed issue ID: ${issueId}`);
       } catch(e) { console.error(e); toast('Failed to close issue', 'error'); }
     };
 
@@ -7439,13 +7931,186 @@ document.addEventListener('DOMContentLoaded', ()=>{
       try {
         await deleteDoc(doc(db,'issues',issueId));
         toast('Issue deleted');
-        await logActivity('delete', 'Issue Tracker', `Deleted issue ID: ${issueId}`);
+        await logActivity('delete', 'PALO', `Deleted issue ID: ${issueId}`);
       } catch(e) { console.error(e); toast('Failed to delete issue', 'error'); }
     };
 
     /***********************
      * ISSUE DASHBOARD
      ***********************/
+    // ── PALO: CSV Download ──────────────────────────────────────────
+    window.downloadIssuesCSV = function() {
+      const issues = getFilteredIssues();
+      const rows = [
+        ['#','Month','Issue No.','PALO Number','Issue / Topic','Action Plan','Responsible Person','Timeline','Status','Closing Date','Closing Month','Remarks']
+      ];
+      issues.forEach((i, idx) => {
+        rows.push([
+          idx+1,
+          i.month||'',
+          i.issueNumber||'',
+          i.paloNumber||'',
+          (i.issueTopic||'').replace(/\n/g,' '),
+          (i.actionPlan||'').replace(/\n/g,' '),
+          i.responsiblePerson||'',
+          i.timeline||'',
+          i.status||'',
+          i.closingDate||'',
+          i.closingMonth||'',
+          (i.remarks||'').replace(/\n/g,' ')
+        ]);
+      });
+      const csvContent = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(',')).join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `PALO_Issues_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('📥 CSV downloaded!');
+    };
+
+    // ── PALO: Print Report ───────────────────────────────────────────
+    window.printIssuesReport = function() {
+      const issues = getFilteredIssues();
+      const allIssues = state.issues || [];
+      const openCount = allIssues.filter(i=>i.status==='OPEN').length;
+      const ongoingCount = allIssues.filter(i=>i.status==='ONGOING').length;
+      const closedCount = allIssues.filter(i=>i.status==='CLOSED').length;
+      const today = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+
+      // Monthly summary data
+      const summary = {};
+      MONTHS.forEach(m => { summary[m] = { total:0, OPEN:0, ONGOING:0, CLOSED:0 }; });
+      allIssues.forEach(i => {
+        const m = i.month;
+        if (m && summary[m]) {
+          summary[m].total++;
+          const s = i.status||'OPEN';
+          if (summary[m][s] !== undefined) summary[m][s]++;
+        }
+      });
+
+      const printWin = window.open('', '_blank', 'width=1100,height=800');
+      printWin.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>PALO Monitoring Report</title>
+          <meta charset="UTF-8"/>
+          <style>
+            *{margin:0;padding:0;box-sizing:border-box;}
+            body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:24px;}
+            h1{font-size:18px;font-weight:700;margin-bottom:2px;}
+            h2{font-size:13px;font-weight:700;margin:16px 0 6px;padding-bottom:4px;border-bottom:2px solid #333;}
+            h3{font-size:11px;font-weight:700;margin:12px 0 4px;}
+            .header{border-bottom:3px solid #1d4ed8;padding-bottom:10px;margin-bottom:14px;}
+            .meta{font-size:10px;color:#555;margin-top:3px;}
+            .stat-row{display:flex;gap:16px;margin-bottom:14px;}
+            .stat-box{flex:1;border-radius:6px;padding:10px 14px;text-align:center;}
+            .stat-box .num{font-size:22px;font-weight:900;}
+            .stat-box .lbl{font-size:9px;text-transform:uppercase;letter-spacing:.5px;margin-top:2px;}
+            .open-box{background:#fee2e2;border:1px solid #fca5a5;color:#b91c1c;}
+            .ongoing-box{background:#ffedd5;border:1px solid #fdba74;color:#c2410c;}
+            .closed-box{background:#dcfce7;border:1px solid #86efac;color:#15803d;}
+            table{width:100%;border-collapse:collapse;font-size:9.5px;margin-bottom:16px;}
+            th{background:#1d4ed8;color:#fff;padding:5px 6px;text-align:left;font-size:9px;font-weight:700;text-transform:uppercase;}
+            td{padding:5px 6px;border-bottom:1px solid #e5e7eb;vertical-align:top;}
+            tr:nth-child(even) td{background:#f9fafb;}
+            .status-open{color:#b91c1c;font-weight:700;}
+            .status-ongoing{color:#c2410c;font-weight:700;}
+            .status-closed{color:#15803d;font-weight:700;}
+            .badge-open{background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;padding:1px 5px;border-radius:10px;font-size:8px;font-weight:700;}
+            .badge-ongoing{background:#ffedd5;color:#c2410c;border:1px solid #fdba74;padding:1px 5px;border-radius:10px;font-size:8px;font-weight:700;}
+            .badge-closed{background:#dcfce7;color:#15803d;border:1px solid #86efac;padding:1px 5px;border-radius:10px;font-size:8px;font-weight:700;}
+            .summary-table th{background:#374151;color:#fff;}
+            .summary-table td{text-align:center;}
+            .monthly-open{color:#b91c1c;font-weight:700;}
+            .monthly-ongoing{color:#c2410c;font-weight:700;}
+            .monthly-closed{color:#15803d;font-weight:700;}
+            .footer{margin-top:20px;padding-top:8px;border-top:1px solid #e5e7eb;font-size:9px;color:#888;text-align:center;}
+            @media print{body{padding:12px;} @page{size:landscape; margin:12mm;}}
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>⚠️ PALO Monitoring & Action Plan Tracker</h1>
+            <div class="meta">SDA Portal &nbsp;|&nbsp; Date Generated: ${today} &nbsp;|&nbsp; Total Records: ${allIssues.length} &nbsp;|&nbsp; Filtered: ${issues.length}</div>
+          </div>
+
+          <h2>Section 1 — Status Summary</h2>
+          <div class="stat-row">
+            <div class="stat-box open-box"><div class="num">${openCount}</div><div class="lbl">🔴 Open</div></div>
+            <div class="stat-box ongoing-box"><div class="num">${ongoingCount}</div><div class="lbl">🔄 Ongoing</div></div>
+            <div class="stat-box closed-box"><div class="num">${closedCount}</div><div class="lbl">✅ Closed</div></div>
+            <div class="stat-box" style="background:#eff6ff;border:1px solid #93c5fd;color:#1e40af;"><div class="num">${allIssues.length}</div><div class="lbl">📋 Total</div></div>
+          </div>
+
+          <h2>Section 2 — PALO Issue Table</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th><th>Month</th><th>Issue No.</th><th>PALO #</th>
+                <th>Issue / Topic</th><th>Action Plan</th><th>Responsible</th>
+                <th>Timeline</th><th>Status</th><th>Closing Date</th><th>Closing Month</th><th>Remarks</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${issues.map((i,idx)=>{
+                const statusBadge = i.status==='OPEN'?`<span class="badge-open">OPEN</span>`:i.status==='ONGOING'?`<span class="badge-ongoing">ONGOING</span>`:`<span class="badge-closed">CLOSED</span>`;
+                const tl = i.timeline ? new Date(i.timeline).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+                const cd = i.closingDate ? new Date(i.closingDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+                return `<tr>
+                  <td>${idx+1}</td>
+                  <td>${i.month||'—'}</td>
+                  <td>${i.issueNumber||'—'}</td>
+                  <td style="color:#1d4ed8;font-weight:700;">${i.paloNumber||'—'}</td>
+                  <td style="max-width:150px">${i.issueTopic||'—'}</td>
+                  <td style="max-width:150px;color:#555">${i.actionPlan||'—'}</td>
+                  <td>${i.responsiblePerson||'—'}</td>
+                  <td>${tl}</td>
+                  <td>${statusBadge}</td>
+                  <td>${cd}</td>
+                  <td>${i.closingMonth||'—'}</td>
+                  <td style="color:#555">${i.remarks||'—'}</td>
+                </tr>`;
+              }).join('')}
+              ${issues.length===0?'<tr><td colspan="12" style="text-align:center;padding:12px;color:#888">No records found</td></tr>':''}
+            </tbody>
+          </table>
+
+          <h2>Section 3 — Monthly Dashboard</h2>
+          <table class="summary-table">
+            <thead>
+              <tr>
+                <th>Status</th>
+                ${MONTH_SHORT.map(m=>`<th>${m}</th>`).join('')}
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${['total','OPEN','ONGOING','CLOSED'].map(row=>{
+                const rowLabel = row==='total'?'Total Issues':row==='OPEN'?'🔴 Open':row==='ONGOING'?'🔄 Ongoing':'✅ Closed';
+                const rowTotal = MONTHS.reduce((s,m)=>s+(summary[m][row]||0),0);
+                const cls = row==='OPEN'?'monthly-open':row==='ONGOING'?'monthly-ongoing':row==='CLOSED'?'monthly-closed':'';
+                return `<tr>
+                  <td style="text-align:left;font-weight:700">${rowLabel}</td>
+                  ${MONTHS.map(m=>`<td class="${cls}">${summary[m][row]||'—'}</td>`).join('')}
+                  <td style="font-weight:900;${row==='OPEN'?'color:#b91c1c':row==='ONGOING'?'color:#c2410c':row==='CLOSED'?'color:#15803d':''}">${rowTotal||'—'}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+
+          <div class="footer">Generated by SDA Portal &nbsp;•&nbsp; ${today} &nbsp;•&nbsp; PALO Monitoring Module</div>
+          <script>window.onload=()=>{ window.print(); }<\/script>
+        </body>
+        </html>
+      `);
+      printWin.document.close();
+    };
+
     window.navigate_orig_issues = window.navigate;
 
     // Add to navigate title map and switch (done via inline extend)
@@ -7453,7 +8118,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     window.navigate = function(view, silent=false) {
       if (view === 'issue-dashboard') {
         state.view = 'issue-dashboard';
-        $('page-title').textContent = '📊 Issue Dashboard';
+        $('page-title').textContent = '📊 PALO Dashboard';
         $('content-area').innerHTML = '';
         $('content-area').scrollTop = 0;
         if (!silent) {
@@ -7494,11 +8159,17 @@ document.addEventListener('DOMContentLoaded', ()=>{
           <!-- Header -->
           <div class="flex items-center justify-between">
             <div>
-              <h2 class="text-xl font-black flex items-center gap-2">📊 Issue Monitoring Dashboard</h2>
+              <h2 class="text-xl font-black flex items-center gap-2">📊 PALO Monitoring Dashboard</h2>
               <p class="text-sm text-muted-foreground">${issues.length} total issues tracked</p>
             </div>
             <button onclick="window.navigate('issues')" class="px-4 py-2 bg-muted border border-border rounded-xl text-sm font-semibold hover:bg-muted/80 transition-all flex items-center gap-2">
-              ← Back to Issues
+              ← Back to PALO
+            </button>
+            <button onclick="window.downloadIssuesCSV()" class="px-4 py-2 bg-muted border border-border rounded-xl text-sm font-semibold hover:bg-muted/80 transition-all">
+              📥 CSV
+            </button>
+            <button onclick="window.printIssuesReport()" class="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:bg-primary/90 transition-all">
+              🖨️ Print Report
             </button>
           </div>
 
